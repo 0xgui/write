@@ -1,41 +1,54 @@
 # Write
 
-A tiny native writing app for the simple pleasure of putting words on a page.
+> A tiny, native Linux app for the joy of writing.
 
-Write opens onto one calm, centered sheet. It saves plain text, gets out of the
-way, and keeps the controls off-screen until you ask for them.
+![Write, a calm page for writing](assets/write-banner.png)
 
-## What it does
+Write opens to one quiet page. It saves plain text, gets out of the way, and
+keeps every control behind a shortcut.
 
-- Writes and saves plain UTF-8 `.txt` files.
-- Autosaves silently after you pause.
-- Lets you choose any local save location.
-- Keeps one recovery copy of the preceding version (`your-file.txt~`).
-- Restores your cursor position for each document.
-- Uses the bundled Literata font for long-form screen writing, with Find,
-  focus mode, and a warm dark paper theme—all shortcut-only.
+## Made for writing
+
+- A centred, paper-like writing column set in Literata.
+- Plain UTF-8 `.txt` files—choose where they live.
+- Quiet autosave and one recovery copy (`your-file.txt~`).
+- Find, focus mode, text-size controls, and a warm dark theme.
+- Your cursor position is remembered for each document.
 
 There are no accounts, cloud services, databases, web views, formatting
 toolbars, document libraries, or telemetry.
+
+The executable is roughly 36 KB. GTK remains a normal system dependency; it is
+never bundled into a huge application package.
 
 ## Build and run
 
 Write uses C++20 and GTK4 (version 4.10 or newer).
 
-On Linux, install a C++ compiler, GNU Make, `pkg-config`, and the GTK4
-development package. Then run:
+On Arch Linux:
+
+```sh
+sudo pacman -S --needed base-devel gtk4
+make
+sudo make install
+```
+
+On another Linux distribution, install a C++ compiler, GNU Make, `pkg-config`,
+and the GTK4 development package, then run the same last two commands.
+
+Launch it with:
+
+```sh
+write
+```
+
+To run it from the source tree without installing it:
 
 ```sh
 make run
 ```
 
-To install the binary and desktop launcher system-wide:
-
-```sh
-sudo make install
-```
-
-Use `PREFIX=... make install` to install to a different prefix.
+Use `PREFIX=... make install` for a different install prefix.
 
 ## Keyboard shortcuts
 
@@ -57,11 +70,8 @@ Use `PREFIX=... make install` to install to a different prefix.
 Your writing is ordinary text and remains portable independently of the app.
 Until you use Save As, the default document is stored at
 `~/.local/share/write/document.txt`; its cursor-position metadata lives only in
-the matching app-data folder.
-
-The source is portable to platforms supported by GTK4. This repository includes
-a small Linux Makefile and desktop launcher; releases for other platforms need
-their platform-appropriate GTK runtime packaging.
+the matching app-data folder. Copy the `.txt` file anywhere; it needs no Write
+database to remain yours.
 
 ## License
 

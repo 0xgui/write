@@ -1,7 +1,7 @@
 CXX := g++
 TARGET := build/write
 PREFIX ?= /usr/local
-CXXFLAGS := -std=c++20 -O2 -Wall -Wextra -Wpedantic -DWRITE_DATA_DIR=\"$(PREFIX)/share/write\" $(shell pkg-config --cflags gtk4 fontconfig)
+CXXFLAGS := -std=c++20 -Os -s -Wall -Wextra -Wpedantic -DWRITE_DATA_DIR=\"$(PREFIX)/share/write\" $(shell pkg-config --cflags gtk4 fontconfig)
 LDLIBS := $(shell pkg-config --libs gtk4 fontconfig)
 
 .PHONY: all run install clean
