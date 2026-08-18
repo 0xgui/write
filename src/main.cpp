@@ -510,11 +510,11 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
     return true;
   }
 
-  if (keyval == GDK_KEY_s && (modifiers & GDK_SHIFT_MASK) != 0) {
+  if ((keyval == GDK_KEY_s || keyval == GDK_KEY_S) && (modifiers & GDK_SHIFT_MASK) != 0) {
     choose_save_location(nullptr, writer);
     return true;
   }
-  if (keyval == GDK_KEY_s) {
+  if (keyval == GDK_KEY_s || keyval == GDK_KEY_S) {
     save_now(writer);
     return true;
   }
