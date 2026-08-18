@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Write
+Comment=A tiny, calm place to write
+Exec=write
+Terminal=false
+Categories=Office;WordProcessor;
+Keywords=writing;text;notes;
+StartupNotify=true
