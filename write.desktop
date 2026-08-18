@@ -2,7 +2,8 @@
 Type=Application
 Name=Write
 Comment=A tiny, calm place to write
-Exec=write
+TryExec=/usr/local/bin/write
+Exec=/usr/local/bin/write
 Terminal=false
 Categories=Office;WordProcessor;
 Keywords=writing;text;notes;
