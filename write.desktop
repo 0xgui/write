@@ -2,6 +2,7 @@
 Type=Application
 Name=Write
 Comment=A tiny, calm place to write
+Icon=com.silvags.Write
 TryExec=/usr/local/bin/write
 Exec=/usr/local/bin/write
 Terminal=false
