@@ -1,6 +1,7 @@
 #include <gtk/gtk.h>
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 
 #include "fonts.h"
@@ -42,6 +43,11 @@ struct Writer {
   bool literata_available = false;
   bool dark_mode = false;
   bool loading_document = false;
+  bool show_word_count = true;
+  bool save_failed = false;
+  std::string backups_root;
+  gint64 last_backup_us = 0;
+  gint64 known_mtime = -1;  // mtime after our last load or save
 
   ~Writer() {
     if (notification_timeout != 0) g_source_remove(notification_timeout);
@@ -60,12 +66,54 @@ char* buffer_text(GtkTextBuffer* buffer) {
 }
 
 void update_word_count(Writer* writer) {
+  if (writer->save_failed) return;  // keep the "Not saved" warning visible
   char* text = buffer_text(writer->buffer);
   const auto count = word_count(text);
   char* label = g_strdup_printf("%u %s", count, count == 1 ? "word" : "words");
-  gtk_label_set_text(writer->status, label);
+  gtk_label_set_text(writer->status, writer->show_word_count ? label : "");
   g_free(label);
   g_free(text);
+}
+
+void show_notification(Writer* writer, const char* message);
+
+void set_save_failed(Writer* writer, bool failed) {
+  if (writer->save_failed == failed) return;
+  writer->save_failed = failed;
+  gtk_window_set_title(writer->window, failed ? "• Write — not saved" : "Write");
+  if (failed) {
+    gtk_label_set_text(writer->status, "Not saved");
+    gtk_widget_add_css_class(GTK_WIDGET(writer->status), "save-error");
+  } else {
+    gtk_widget_remove_css_class(GTK_WIDGET(writer->status), "save-error");
+    update_word_count(writer);
+  }
+}
+
+void take_backup(Writer* writer, const char* text, gsize length) {
+  const gint64 now = g_get_real_time();
+  std::string error;
+  if (write_backup(writer->backups_root, writer->document_path, text, length, now, kBackupsKept, &error)) {
+    writer->last_backup_us = now;
+  } else {
+    g_warning("Write could not create a backup: %s", error.c_str());
+  }
+}
+
+// Returns true (and snapshots the disk version) when another program changed
+// the document since Write last loaded or saved it.
+bool check_changed_on_disk(Writer* writer) {
+  const gint64 mtime = file_mtime(writer->document_path);
+  if (writer->known_mtime < 0 || mtime < 0 || mtime == writer->known_mtime) return false;
+  char* disk_text = nullptr;
+  gsize disk_length = 0;
+  if (g_file_get_contents(writer->document_path.c_str(), &disk_text, &disk_length, nullptr)) {
+    take_backup(writer, disk_text, disk_length);
+    g_free(disk_text);
+  }
+  writer->known_mtime = mtime;
+  show_notification(writer, "File changed on disk — other version kept in backups");
+  return true;
 }
 
 void save_cursor_position(Writer* writer) {
@@ -100,44 +148,38 @@ bool load_document(Writer* writer, const char* path) {
   writer->loading_document = true;
   writer->document_path = path;
   gtk_text_buffer_set_text(writer->buffer, text, static_cast<gint>(length));
-  g_free(text);
   restore_cursor_position(writer);
   writer->loading_document = false;
+  writer->known_mtime = file_mtime(writer->document_path);
+  writer->last_backup_us = 0;
+  take_backup(writer, text, length);
+  g_free(text);
   update_word_count(writer);
   return true;
 }
 
 void save(Writer* writer) {
   char* text = buffer_text(writer->buffer);
+  const gsize length = strlen(text);
   char* directory = g_path_get_dirname(writer->document_path.c_str());
-  GError* error = nullptr;
+  std::string error;
 
   if (g_mkdir_with_parents(directory, 0700) != 0) {
-    g_warning("Write could not create the save folder");
+    error = "could not create the save folder";
   } else {
-    // Keep exactly one recovery copy: the version that existed before this save.
-    // It keeps writing safe without adding a document database or version UI.
-    if (g_file_test(writer->document_path.c_str(), G_FILE_TEST_EXISTS)) {
-      const std::string backup_path = writer->document_path + "~";
-      GFile* source = g_file_new_for_path(writer->document_path.c_str());
-      GFile* backup = g_file_new_for_path(backup_path.c_str());
-      GError* backup_error = nullptr;
-      if (!g_file_copy(source, backup, G_FILE_COPY_OVERWRITE, nullptr, nullptr, nullptr, &backup_error)) {
-        g_warning("Write could not create a recovery copy: %s", backup_error->message);
-        g_clear_error(&backup_error);
-      }
-      g_object_unref(source);
-      g_object_unref(backup);
-    }
-
-    if (!g_file_set_contents(writer->document_path.c_str(), text, -1, &error)) {
-      g_warning("Write could not save the document: %s", error != nullptr ? error->message : "unknown error");
-      g_clear_error(&error);
-    } else {
+    check_changed_on_disk(writer);
+    if (backup_due(writer->last_backup_us, g_get_real_time())) take_backup(writer, text, length);
+    if (atomic_write(writer->document_path, text, length, &error)) {
+      writer->known_mtime = file_mtime(writer->document_path);
       save_cursor_position(writer);
+      error.clear();
+    } else if (error.empty()) {
+      error = "unknown error";
     }
   }
 
+  if (!error.empty()) g_warning("Write could not save the document: %s", error.c_str());
+  set_save_failed(writer, !error.empty());
   g_free(directory);
   g_free(text);
 }
@@ -278,6 +320,8 @@ void on_save_as_finished(GObject* source, GAsyncResult* result, gpointer user_da
     char* path = g_file_get_path(selected_file);
     if (path != nullptr) {
       writer->document_path = path;
+      writer->known_mtime = -1;
+      writer->last_backup_us = 0;
       g_free(path);
       save(writer);
     } else {
@@ -468,6 +512,12 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
     show_notification(writer, writer->dark_mode ? "Dark paper" : "Light paper");
     return true;
   }
+  if ((keyval == GDK_KEY_w || keyval == GDK_KEY_W) && (modifiers & GDK_SHIFT_MASK) != 0) {
+    writer->show_word_count = !writer->show_word_count;
+    update_word_count(writer);
+    show_notification(writer, writer->show_word_count ? "Word count on" : "Word count off");
+    return true;
+  }
   if ((keyval == GDK_KEY_i || keyval == GDK_KEY_I) && (modifiers & GDK_SHIFT_MASK) != 0) {
     show_notification(writer, writer->literata_available ? "Literata" : "Literata unavailable — fallback in use");
     return true;
@@ -498,6 +548,10 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
   return false;
 }
 
+void on_window_active(GObject* window, GParamSpec*, gpointer user_data) {
+  if (gtk_window_is_active(GTK_WINDOW(window))) check_changed_on_disk(static_cast<Writer*>(user_data));
+}
+
 gboolean on_window_close(GtkWindow*, gpointer user_data) {
   auto* writer = static_cast<Writer*>(user_data);
   if (writer->pending_save != 0) {
@@ -522,6 +576,9 @@ void on_activate(GtkApplication* app, gpointer) {
   writer->positions_path = positions_path;
   g_free(positions_path);
   writer->positions = positions_load(writer->positions_path);
+  char* backups_root = g_build_filename(g_get_user_data_dir(), "write", "backups", nullptr);
+  writer->backups_root = backups_root;
+  g_free(backups_root);
 
   GtkWidget* window = gtk_application_window_new(app);
   writer->window = GTK_WINDOW(window);
@@ -594,14 +651,9 @@ void on_activate(GtkApplication* app, gpointer) {
 
   writer->buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(editor));
   writer->editor = GTK_TEXT_VIEW(editor);
-  char* saved_text = nullptr;
-  gsize saved_length = 0;
-  if (g_file_get_contents(writer->document_path.c_str(), &saved_text, &saved_length, nullptr)) {
-    gtk_text_buffer_set_text(writer->buffer, saved_text, static_cast<gint>(saved_length));
-    g_free(saved_text);
+  if (g_file_test(writer->document_path.c_str(), G_FILE_TEST_EXISTS)) {
+    load_document(writer, writer->document_path.c_str());
   }
-  restore_cursor_position(writer);
-  update_word_count(writer);
 
   g_signal_connect(writer->buffer, "changed", G_CALLBACK(on_buffer_changed), writer);
   g_signal_connect(writer->buffer, "mark-set", G_CALLBACK(on_cursor_moved), writer);
@@ -609,6 +661,7 @@ void on_activate(GtkApplication* app, gpointer) {
   g_signal_connect(search_entry, "activate", G_CALLBACK(on_search_activated), writer);
   g_signal_connect(editor, "notify::width", G_CALLBACK(center_writing_column), nullptr);
   gtk_widget_add_tick_callback(editor, maintain_writing_column, writer, nullptr);
+  g_signal_connect(window, "notify::is-active", G_CALLBACK(on_window_active), writer);
   g_signal_connect(window, "close-request", G_CALLBACK(on_window_close), writer);
   g_object_set_data_full(G_OBJECT(window), "writer-state", writer, [](gpointer data) {
     delete static_cast<Writer*>(data);
@@ -621,6 +674,7 @@ void on_activate(GtkApplication* app, gpointer) {
     .wordmark { font-family: Literata, C059, serif; font-size: 24px; font-style: italic; letter-spacing: -0.8px; }
     .status { color: #91897c; font-size: 12px; }
     .notification { color: #857a6b; font-size: 12px; }
+    .status.save-error { color: #b4442f; font-weight: bold; }
     .find-container { margin-right: 12px; }
     entry.find-entry { min-height: 28px; padding: 0 8px; border: 1px solid #d7cfc2; border-radius: 5px; background: #f0ebe1; color: #312c25; font-size: 13px; box-shadow: none; }
     entry.find-entry:focus { border-color: #9b8971; box-shadow: 0 0 0 2px rgba(155, 137, 113, 0.18); }
