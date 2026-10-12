@@ -11,7 +11,11 @@ keeps every control behind a shortcut.
 
 - A centred, paper-like writing column set in Literata.
 - Plain UTF-8 `.txt` files—choose where they live.
-- Quiet autosave and one recovery copy (`your-file.txt~`).
+- Quiet, crash-safe autosave (written to a temporary file, then swapped in).
+- Timestamped backups: one when a file opens, then at most every five minutes
+  while you write; the newest 20 per file are kept.
+- A clear “Not saved” warning if saving fails, and a notice when another
+  program changes the file.
 - Find, focus mode, text-size controls, and a warm dark theme.
 - Your cursor position is remembered for each document.
 
@@ -40,7 +44,13 @@ Launch it with:
 
 ```sh
 write
+write notes/today.txt
 ```
+
+A file argument opens that file, in the running window if Write is already open.
+A missing file is created on the first save.
+
+Run the storage tests with `make test`.
 
 To run it from the source tree without installing it:
 
@@ -62,6 +72,9 @@ Use `PREFIX=... make install` for a different install prefix.
 - `Ctrl` + `-` — decrease text size
 - `Ctrl` + `0` — reset text size
 - `Ctrl` + `Shift` + `D` — switch warm light/dark paper
+- `Ctrl` + `R` — reload the file from disk after another program changed it
+  (your current text is backed up first)
+- `Ctrl` + `Shift` + `W` — show or hide the word count
 - `Ctrl` + `Shift` + `I` — show the active writing typeface
 - `F11` — focus mode (fullscreen, no header)
 
@@ -70,7 +83,8 @@ Use `PREFIX=... make install` for a different install prefix.
 Your writing is ordinary text and remains portable independently of the app.
 Until you use Save As, the default document is stored at
 `~/.local/share/write/document.txt`; its cursor-position metadata lives only in
-the matching app-data folder. Copy the `.txt` file anywhere; it needs no Write
+the matching app-data folder. Backups live in `~/.local/share/write/backups/`, one folder per document.
+Copy the `.txt` file anywhere; it needs no Write
 database to remain yours.
 
 ## License

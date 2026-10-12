@@ -1,16 +1,26 @@
 CXX := g++
 TARGET := build/write
 PREFIX ?= /usr/local
-CXXFLAGS := -std=c++20 -Os -s -Wall -Wextra -Wpedantic -DWRITE_DATA_DIR=\"$(PREFIX)/share/write\" $(shell pkg-config --cflags gtk4 fontconfig)
+CXXFLAGS := -std=c++20 -Os -Wall -Wextra -Wpedantic -DWRITE_DATA_DIR=\"$(PREFIX)/share/write\" $(shell pkg-config --cflags gtk4 fontconfig)
+LDFLAGS := -s
 LDLIBS := $(shell pkg-config --libs gtk4 fontconfig)
+SOURCES := src/main.cpp src/ui.cpp src/storage.cpp src/positions.cpp src/fonts.cpp
+HEADERS := $(wildcard src/*.h)
 
-.PHONY: all run install clean
+.PHONY: all run test install clean
 
 all: $(TARGET)
 
-$(TARGET): src/main.cpp
+$(TARGET): $(SOURCES) $(HEADERS)
 	@mkdir -p build
-	$(CXX) $(CXXFLAGS) $< -o $@ $(LDLIBS)
+	$(CXX) $(CXXFLAGS) $(SOURCES) -o $@ $(LDFLAGS) $(LDLIBS)
+
+build/storage_test: tests/storage_test.cpp src/storage.cpp src/storage.h
+	@mkdir -p build
+	$(CXX) -std=c++20 -O1 -Wall -Wextra -Wpedantic $(shell pkg-config --cflags glib-2.0) tests/storage_test.cpp src/storage.cpp -o $@ $(shell pkg-config --libs glib-2.0)
+
+test: build/storage_test
+	./build/storage_test
 
 run: $(TARGET)
 	./$(TARGET)
