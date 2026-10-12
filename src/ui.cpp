@@ -627,6 +627,7 @@ void on_activate(GtkApplication* app, gpointer) {
   GtkWidget* window = gtk_application_window_new(app);
   writer->window = GTK_WINDOW(window);
   gtk_window_set_title(GTK_WINDOW(window), "Write");
+  gtk_window_set_default_icon_name("com.silvags.Write");
   gtk_window_set_default_size(GTK_WINDOW(window), 920, 720);
   gtk_widget_add_css_class(window, "write-window");
 

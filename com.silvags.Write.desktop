@@ -9,3 +9,4 @@ Terminal=false
 Categories=Office;WordProcessor;
 Keywords=writing;text;notes;
 StartupNotify=true
+StartupWMClass=com.silvags.Write
