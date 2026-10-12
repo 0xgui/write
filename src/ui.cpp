@@ -567,6 +567,10 @@ gboolean on_window_close(GtkWindow*, gpointer user_data) {
 }  // namespace
 
 void on_activate(GtkApplication* app, gpointer) {
+  if (GtkWindow* existing = gtk_application_get_active_window(app)) {
+    gtk_window_present(existing);
+    return;
+  }
   auto* writer = new Writer();
   writer->literata_available = register_bundled_literata();
   char* path = g_build_filename(g_get_user_data_dir(), "write", "document.txt", nullptr);
