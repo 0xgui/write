@@ -2,6 +2,8 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 
+#include <unistd.h>
+
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -69,6 +71,11 @@ int main() {
   check(count_entries(doc_dir) == 1, "atomic write leaves no temp files or ~ copies");
   check(!atomic_write(root + "/missing/dir/x.txt", "x", 1, &error) && !error.empty(),
         "atomic write reports failure");
+  const std::string link = root + "/link.txt";
+  symlink(doc.c_str(), link.c_str());
+  check(atomic_write(link, "via link", 8, &error), "atomic write through a symlink");
+  check(g_file_test(link.c_str(), G_FILE_TEST_IS_SYMLINK), "symlink survives a save");
+  check(read_file(doc) == "via link", "symlink target receives the new text");
   check(file_mtime(doc) > 0 && file_mtime(root + "/nope") == -1, "file_mtime");
 
   check(backup_due(0, 1), "first backup is always due");

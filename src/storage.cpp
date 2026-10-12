@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -33,7 +34,11 @@ std::string document_key(const std::string& path) {
   return key;
 }
 
-bool atomic_write(const std::string& path, const char* data, gsize length, std::string* error) {
+bool atomic_write(const std::string& requested_path, const char* data, gsize length, std::string* error) {
+  // Write through symlinks so the link target is updated, not replaced.
+  char* resolved = realpath(requested_path.c_str(), nullptr);
+  const std::string path = resolved != nullptr ? resolved : requested_path;
+  free(resolved);
   char* directory = g_path_get_dirname(path.c_str());
   char* base = g_path_get_basename(path.c_str());
   char* temp_path = g_strdup_printf("%s/.%s.XXXXXX", directory, base);
