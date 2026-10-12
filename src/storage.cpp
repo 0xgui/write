@@ -146,3 +146,10 @@ bool write_backup(const std::string& backups_root, const std::string& document_p
   }
   return true;
 }
+
+std::string home_relative(const std::string& path, const std::string& home) {
+  if (home.empty() || path.compare(0, home.size(), home) != 0) return path;
+  if (path.size() == home.size()) return "~";
+  if (path[home.size()] != '/') return path;
+  return "~" + path.substr(home.size());
+}

@@ -75,7 +75,7 @@ void update_word_count(Writer* writer) {
   g_free(text);
 }
 
-void show_notification(Writer* writer, const char* message);
+void show_notification(Writer* writer, const char* message, guint duration_ms = 1600);
 
 void set_save_failed(Writer* writer, bool failed) {
   if (writer->save_failed == failed) return;
@@ -100,9 +100,9 @@ void take_backup(Writer* writer, const char* text, gsize length) {
   }
 }
 
-// Returns true (and snapshots the disk version) when another program changed
-// the document since Write last loaded or saved it.
-bool check_changed_on_disk(Writer* writer) {
+// Snapshots the disk version when another program changed the document since
+// Write last loaded or saved it, and tells the writer how to get it back.
+bool check_changed_on_disk(Writer* writer, bool about_to_save) {
   const gint64 mtime = file_mtime(writer->document_path);
   if (writer->known_mtime < 0 || mtime < 0 || mtime == writer->known_mtime) return false;
   char* disk_text = nullptr;
@@ -112,7 +112,12 @@ bool check_changed_on_disk(Writer* writer) {
     g_free(disk_text);
   }
   writer->known_mtime = mtime;
-  show_notification(writer, "File changed on disk — other version kept in backups");
+  const std::string folder = home_relative(backup_dir(writer->backups_root, writer->document_path), g_get_home_dir());
+  char* message = about_to_save
+      ? g_strdup_printf("File changed on disk. That version is backed up in\n%s", folder.c_str())
+      : g_strdup_printf("File changed on disk. Ctrl+R loads it, backing up your text first.\nBackups: %s", folder.c_str());
+  show_notification(writer, message, 12000);
+  g_free(message);
   return true;
 }
 
@@ -167,7 +172,7 @@ void save(Writer* writer) {
   if (g_mkdir_with_parents(directory, 0700) != 0) {
     error = "could not create the save folder";
   } else {
-    check_changed_on_disk(writer);
+    check_changed_on_disk(writer, true);
     if (backup_due(writer->last_backup_us, g_get_real_time())) take_backup(writer, text, length);
     if (atomic_write(writer->document_path, text, length, &error)) {
       writer->known_mtime = file_mtime(writer->document_path);
@@ -301,16 +306,18 @@ gboolean hide_notification(gpointer user_data) {
   auto* writer = static_cast<Writer*>(user_data);
   writer->notification_timeout = 0;
   gtk_widget_set_visible(GTK_WIDGET(writer->notification), false);
+  gtk_label_set_xalign(writer->notification, 1.0);
+  gtk_label_set_justify(writer->notification, GTK_JUSTIFY_RIGHT);
   return G_SOURCE_REMOVE;
 }
 
-void show_notification(Writer* writer, const char* message) {
+void show_notification(Writer* writer, const char* message, guint duration_ms) {
   if (writer->notification_timeout != 0) {
     g_source_remove(writer->notification_timeout);
   }
   gtk_label_set_text(writer->notification, message);
   gtk_widget_set_visible(GTK_WIDGET(writer->notification), true);
-  writer->notification_timeout = g_timeout_add(1600, hide_notification, writer);
+  writer->notification_timeout = g_timeout_add(duration_ms, hide_notification, writer);
 }
 
 void on_save_as_finished(GObject* source, GAsyncResult* result, gpointer user_data) {
@@ -459,6 +466,19 @@ void switch_document(Writer* writer, const char* path) {
   update_word_count(writer);
 }
 
+void reload_from_disk(Writer* writer) {
+  if (!g_file_test(writer->document_path.c_str(), G_FILE_TEST_EXISTS)) return;
+  if (writer->pending_save != 0) {
+    g_source_remove(writer->pending_save);
+    writer->pending_save = 0;
+  }
+  char* text = buffer_text(writer->buffer);
+  take_backup(writer, text, strlen(text));
+  g_free(text);
+  const std::string path = writer->document_path;
+  if (load_document(writer, path.c_str())) show_notification(writer, "Reloaded from disk");
+}
+
 void on_open_finished(GObject* source, GAsyncResult* result, gpointer user_data) {
   auto* writer = static_cast<Writer*>(user_data);
   GError* error = nullptr;
@@ -528,6 +548,10 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
     show_notification(writer, writer->dark_mode ? "Dark paper" : "Light paper");
     return true;
   }
+  if (keyval == GDK_KEY_r || keyval == GDK_KEY_R) {
+    reload_from_disk(writer);
+    return true;
+  }
   if ((keyval == GDK_KEY_w || keyval == GDK_KEY_W) && (modifiers & GDK_SHIFT_MASK) != 0) {
     writer->show_word_count = !writer->show_word_count;
     update_word_count(writer);
@@ -565,7 +589,7 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
 }
 
 void on_window_active(GObject* window, GParamSpec*, gpointer user_data) {
-  if (gtk_window_is_active(GTK_WINDOW(window))) check_changed_on_disk(static_cast<Writer*>(user_data));
+  if (gtk_window_is_active(GTK_WINDOW(window))) check_changed_on_disk(static_cast<Writer*>(user_data), false);
 }
 
 gboolean on_window_close(GtkWindow*, gpointer user_data) {

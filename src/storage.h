@@ -25,3 +25,6 @@ bool backup_due(gint64 last_backup_us, gint64 now_us);
 // Writes one snapshot and keeps only the newest `keep` for that document.
 bool write_backup(const std::string& backups_root, const std::string& document_path,
                   const char* data, gsize length, gint64 now_us, int keep, std::string* error);
+
+// Shortens a path under `home` to start with "~" for display.
+std::string home_relative(const std::string& path, const std::string& home);

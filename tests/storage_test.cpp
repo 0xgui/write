@@ -78,6 +78,11 @@ int main() {
   check(read_file(doc) == "via link", "symlink target receives the new text");
   check(file_mtime(doc) > 0 && file_mtime(root + "/nope") == -1, "file_mtime");
 
+  check(home_relative("/home/ana/.local/share/write/backups/ab", "/home/ana") == "~/.local/share/write/backups/ab",
+        "paths under home are shown with ~");
+  check(home_relative("/home/anabel/notes", "/home/ana") == "/home/anabel/notes",
+        "a sibling folder sharing the home prefix is left alone");
+  check(home_relative("/srv/notes", "/home/ana") == "/srv/notes", "paths outside home are unchanged");
   check(backup_due(0, 1), "first backup is always due");
   check(!backup_due(1000, 1000 + kBackupIntervalUs - 1), "backup not due within 5 minutes");
   check(backup_due(1000, 1000 + kBackupIntervalUs), "backup due after 5 minutes");
