@@ -44,7 +44,11 @@ Launch it with:
 
 ```sh
 write
+write notes/today.txt
 ```
+
+A file argument opens that file, in the running window if Write is already open.
+A missing file is created on the first save.
 
 Run the storage tests with `make test`.
 
@@ -68,6 +72,8 @@ Use `PREFIX=... make install` for a different install prefix.
 - `Ctrl` + `-` — decrease text size
 - `Ctrl` + `0` — reset text size
 - `Ctrl` + `Shift` + `D` — switch warm light/dark paper
+- `Ctrl` + `R` — reload the file from disk after another program changed it
+  (your current text is backed up first)
 - `Ctrl` + `Shift` + `W` — show or hide the word count
 - `Ctrl` + `Shift` + `I` — show the active writing typeface
 - `F11` — focus mode (fullscreen, no header)
