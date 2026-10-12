@@ -281,6 +281,7 @@ void apply_theme(Writer* writer) {
       ? R"(
         window.write-window, .header, textview, textview text { background: #191714; color: #e9e1d4; }
         .status, .notification { color: #a69a89; }
+        .status.save-error { color: #e07a5f; font-weight: bold; }
         separator { background: #39342d; }
         entry.find-entry { background: #26221d; color: #e9e1d4; border-color: #4a4339; }
         entry.find-entry:focus { border-color: #aa9474; box-shadow: 0 0 0 2px rgba(170, 148, 116, 0.20); }
@@ -288,6 +289,7 @@ void apply_theme(Writer* writer) {
       : R"(
         window.write-window, .header, textview, textview text { background: #f7f3ea; color: #312c25; }
         .status { color: #91897c; }
+        .status.save-error { color: #b4442f; font-weight: bold; }
         .notification { color: #857a6b; }
         separator { background: #ddd6ca; }
         entry.find-entry { background: #f0ebe1; color: #312c25; border-color: #d7cfc2; }
@@ -678,7 +680,6 @@ void on_activate(GtkApplication* app, gpointer) {
     .wordmark { font-family: Literata, C059, serif; font-size: 24px; font-style: italic; letter-spacing: -0.8px; }
     .status { color: #91897c; font-size: 12px; }
     .notification { color: #857a6b; font-size: 12px; }
-    .status.save-error { color: #b4442f; font-weight: bold; }
     .find-container { margin-right: 12px; }
     entry.find-entry { min-height: 28px; padding: 0 8px; border: 1px solid #d7cfc2; border-radius: 5px; background: #f0ebe1; color: #312c25; font-size: 13px; box-shadow: none; }
     entry.find-entry:focus { border-color: #9b8971; box-shadow: 0 0 0 2px rgba(155, 137, 113, 0.18); }
