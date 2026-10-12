@@ -3,6 +3,7 @@
 #include "ui.h"
 
 int main(int argc, char** argv) {
+  g_set_prgname("com.silvags.Write");
   GtkApplication* app = gtk_application_new("com.silvags.Write", G_APPLICATION_HANDLES_OPEN);
   g_signal_connect(app, "activate", G_CALLBACK(on_activate), nullptr);
   g_signal_connect(app, "open", G_CALLBACK(on_open), nullptr);
