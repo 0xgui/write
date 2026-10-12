@@ -440,6 +440,25 @@ void insert_paragraph_break(Writer* writer) {
   schedule_cursor_guard(writer);
 }
 
+void switch_document(Writer* writer, const char* path) {
+  if (writer->pending_save != 0) {
+    save_now(writer);
+  } else {
+    save_cursor_position(writer);
+  }
+  if (g_file_test(path, G_FILE_TEST_EXISTS)) {
+    load_document(writer, path);
+    return;
+  }
+  writer->loading_document = true;
+  writer->document_path = path;
+  gtk_text_buffer_set_text(writer->buffer, "", 0);
+  writer->loading_document = false;
+  writer->known_mtime = -1;
+  writer->last_backup_us = 0;
+  update_word_count(writer);
+}
+
 void on_open_finished(GObject* source, GAsyncResult* result, gpointer user_data) {
   auto* writer = static_cast<Writer*>(user_data);
   GError* error = nullptr;
@@ -448,12 +467,7 @@ void on_open_finished(GObject* source, GAsyncResult* result, gpointer user_data)
   if (selected_file != nullptr) {
     char* path = g_file_get_path(selected_file);
     if (path != nullptr) {
-      if (writer->pending_save != 0) {
-        save_now(writer);
-      } else {
-        save_cursor_position(writer);
-      }
-      load_document(writer, path);
+      switch_document(writer, path);
       g_free(path);
     } else {
       g_warning("Write can open only local files");
@@ -714,4 +728,19 @@ void on_activate(GtkApplication* app, gpointer) {
   gtk_widget_grab_focus(editor);
   gtk_window_present(GTK_WINDOW(window));
   g_idle_add(center_writing_column_after_layout, editor);
+}
+
+void on_open(GApplication* app, GFile** files, int count, const char*, gpointer) {
+  if (count < 1) return;
+  on_activate(GTK_APPLICATION(app), nullptr);
+  GtkWindow* window = gtk_application_get_active_window(GTK_APPLICATION(app));
+  auto* writer = static_cast<Writer*>(g_object_get_data(G_OBJECT(window), "writer-state"));
+  char* path = g_file_get_path(files[0]);
+  if (path == nullptr) {
+    g_warning("Write can open only local files");
+    return;
+  }
+  switch_document(writer, path);
+  g_free(path);
+  gtk_window_present(window);
 }
