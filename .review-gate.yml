@@ -1,0 +1,42 @@
+# agent-pr-gate config. See https://github.com/0xgui/agent-pr-gate#configuration
+default_tier: medium
+
+# Highest matching tier across all changed files wins.
+tiers:
+  low:
+    - "*.md"
+    - "assets/**"
+  medium:
+    - "src/**"
+    - "tests/**"
+    - "Makefile"
+  high:
+    - ".github/workflows/**"
+    - ".review-gate.yml"
+
+evidence:
+  sections:
+    - Testing
+    - Risk
+    - name: How to revert
+      aliases: [Rollback, Revert plan]
+  require_green_ci: true
+
+routing:
+  approvals:
+    low: 0
+    medium: 1
+    high: 2
+  high_requires_codeowners: false
+  # Single-maintainer repository: low and medium PRs opened under the owner's account need no
+  # approving review. High tier and gate-control files are never waived.
+  owner_override: true
+  owners: [0xgui]
+  owner_override_tiers: [low, medium]
+
+rounds:
+  cap: 2
+  review_states: [CHANGES_REQUESTED]
+
+maintainers:
+  - 0xgui
