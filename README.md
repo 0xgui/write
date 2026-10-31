@@ -134,6 +134,11 @@ the name stays put, so rename the file by hand if the title changes.
 Copy the `.txt` file anywhere; it needs no Write
 database to remain yours.
 
+Write saves UTF-8. A file in another encoding (such as Latin-1, Windows-1252,
+or UTF-16 with a byte-order mark) still opens readably: Write converts it,
+says which encoding it read, and keeps the original bytes in the backups. The
+file is written as UTF-8 once you edit it.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
