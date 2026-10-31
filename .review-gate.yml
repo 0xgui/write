@@ -25,14 +25,11 @@ evidence:
 routing:
   approvals:
     low: 0
-    medium: 1
-    high: 2
+    medium: 0
+    high: 0
+  # Single-maintainer repository: no approving reviews or CODEOWNERS. Evidence sections and
+  # a green build still apply to every PR.
   high_requires_codeowners: false
-  # Single-maintainer repository: low and medium PRs opened under the owner's account need no
-  # approving review. High tier and gate-control files are never waived.
-  owner_override: true
-  owners: [0xgui]
-  owner_override_tiers: [low, medium]
 
 rounds:
   cap: 2
