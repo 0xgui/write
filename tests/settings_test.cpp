@@ -33,12 +33,15 @@ int main() {
   const Settings fresh = settings_load(path);
   check(fresh.paper == Paper::Light && !fresh.paper_saved, "a missing file means no saved paper");
   check(fresh.font_size == kDefaultFontSize && fresh.show_word_count, "a missing file gives the defaults");
+  check(!fresh.focus_dimming && fresh.typewriter, "focus dimming starts off and typewriter scrolling on");
 
   Settings chosen;
   chosen.paper = Paper::Night;
   chosen.paper_saved = true;
   chosen.font_size = 23;
   chosen.show_word_count = false;
+  chosen.focus_dimming = true;
+  chosen.typewriter = false;
   chosen.essays_dir = "~/Writing/Essays";
   chosen.last_document = "/tmp/essays/2026-10-31 on solitude.txt";
   check(settings_save(path, chosen), "settings save into a new folder");
@@ -46,6 +49,7 @@ int main() {
   check(loaded.paper == Paper::Night && loaded.paper_saved, "the chosen paper survives a relaunch");
   check(loaded.font_size == 23, "the text size survives a relaunch");
   check(!loaded.show_word_count, "the word count choice survives a relaunch");
+  check(loaded.focus_dimming && !loaded.typewriter, "focus dimming and typewriter choices survive a relaunch");
   check(loaded.essays_dir == "~/Writing/Essays", "the essays folder survives a relaunch");
   check(loaded.last_document == chosen.last_document, "the last essay survives a relaunch");
   check(fresh.essays_dir.empty() && fresh.last_document.empty(), "no folder or essay is assumed");
@@ -55,11 +59,12 @@ int main() {
   settings_save(root + "/unchosen.ini", unchosen);
   check(!settings_load(root + "/unchosen.ini").paper_saved, "an unchosen paper is not written, so the system default still applies");
 
-  write_file(root + "/odd.ini", "[preferences]\npaper=sepia\nfont-size=400\nword-count=maybe\n");
+  write_file(root + "/odd.ini", "[preferences]\npaper=sepia\nfont-size=400\nword-count=maybe\nfocus-dimming=2\n");
   const Settings odd = settings_load(root + "/odd.ini");
   check(!odd.paper_saved && odd.paper == Paper::Light, "an unknown paper is ignored");
   check(odd.font_size == kLargestFontSize, "the text size is clamped");
   check(odd.show_word_count, "a broken word-count value keeps the default");
+  check(!odd.focus_dimming, "a broken focus-dimming value keeps the default");
 
   write_file(root + "/tiny.ini", "[preferences]\nfont-size=2\npaper=dark\n");
   const Settings tiny = settings_load(root + "/tiny.ini");

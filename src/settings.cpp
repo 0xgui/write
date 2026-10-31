@@ -56,9 +56,13 @@ Settings settings_load(const std::string& settings_path) {
     const int size = g_key_file_get_integer(file, kGroup, "font-size", &error);
     if (error == nullptr) settings.font_size = std::clamp(size, kSmallestFontSize, kLargestFontSize);
     g_clear_error(&error);
-    const bool count = g_key_file_get_boolean(file, kGroup, "word-count", &error);
-    if (error == nullptr) settings.show_word_count = count;
-    g_clear_error(&error);
+    for (auto [key, value] : {std::pair{"word-count", &settings.show_word_count},
+                              std::pair{"focus-dimming", &settings.focus_dimming},
+                              std::pair{"typewriter-scrolling", &settings.typewriter}}) {
+      const bool flag = g_key_file_get_boolean(file, kGroup, key, &error);
+      if (error == nullptr) *value = flag;
+      g_clear_error(&error);
+    }
     for (auto [key, value] : {std::pair{"essays-folder", &settings.essays_dir},
                               std::pair{"last-document", &settings.last_document}}) {
       if (char* text = g_key_file_get_string(file, kGroup, key, nullptr)) {
@@ -78,6 +82,8 @@ bool settings_save(const std::string& settings_path, const Settings& settings) {
   if (settings.paper_saved) g_key_file_set_string(file, kGroup, "paper", paper_key(settings.paper));
   g_key_file_set_integer(file, kGroup, "font-size", settings.font_size);
   g_key_file_set_boolean(file, kGroup, "word-count", settings.show_word_count);
+  g_key_file_set_boolean(file, kGroup, "focus-dimming", settings.focus_dimming);
+  g_key_file_set_boolean(file, kGroup, "typewriter-scrolling", settings.typewriter);
   if (!settings.essays_dir.empty()) g_key_file_set_string(file, kGroup, "essays-folder", settings.essays_dir.c_str());
   if (!settings.last_document.empty()) {
     g_key_file_set_string(file, kGroup, "last-document", settings.last_document.c_str());

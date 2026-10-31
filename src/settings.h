@@ -14,6 +14,8 @@ struct Settings {
   bool paper_saved = false;  // false until the writer picks a paper
   int font_size = kDefaultFontSize;
   bool show_word_count = true;
+  bool focus_dimming = false;  // dim every paragraph but the one being written
+  bool typewriter = true;      // keep the line being written in the middle of the page
   std::string essays_dir;     // empty means the default folder
   std::string last_document;  // reopened on launch
 };
