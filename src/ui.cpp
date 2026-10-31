@@ -11,6 +11,7 @@
 #include "fonts.h"
 #include "positions.h"
 #include "settings.h"
+#include "shortcuts.h"
 #include "storage.h"
 #include "ui.h"
 
@@ -36,6 +37,7 @@ struct Writer {
   GtkPopover* switcher = nullptr;
   GtkSearchEntry* switcher_entry = nullptr;
   GtkListBox* switcher_list = nullptr;
+  GtkPopover* keys_sheet = nullptr;
   std::vector<Essay> essays;  // what the switcher lists, newest first
   GtkCssProvider* text_css = nullptr;
   GtkCssProvider* theme_css = nullptr;
@@ -456,10 +458,10 @@ void apply_theme(Writer* writer) {
       scrollbar, scrollbar trough { background: transparent; border: none; }
       scrollbar slider { background-color: %s; border: none; min-width: 4px; }
       scrollbar slider:hover, scrollbar slider:active { background-color: %s; }
-      popover.essays > contents { background: %s; color: %s; border: 1px solid %s; }
+      popover.essays > contents, popover.keys > contents { background: %s; color: %s; border: 1px solid %s; }
       popover.essays list, popover.essays row { background: transparent; color: %s; }
       popover.essays row:selected { background-color: %s; }
-      popover.essays .essay-date { color: %s; }
+      popover.essays .essay-date, popover.keys .keys { color: %s; }
     )",
       p.paper, p.ink, p.caret, p.selection, p.ink, p.status, p.error, p.notification, p.rule,
       p.field, p.ink, p.field_border, p.caret, p.focus, p.status, p.slider, p.focus,
@@ -782,6 +784,60 @@ gboolean on_switcher_key(GtkEventControllerKey*, guint keyval, guint, GdkModifie
   return true;
 }
 
+bool is_keys_sheet_key(guint keyval, guint modifiers) {
+  // Ctrl+/ (Ctrl+? too, since some layouts need Shift for the slash) or F1.
+  return keyval == GDK_KEY_F1 ||
+         ((modifiers & GDK_CONTROL_MASK) != 0 && (keyval == GDK_KEY_slash || keyval == GDK_KEY_question));
+}
+
+void toggle_keys_sheet(Writer* writer) {
+  if (gtk_widget_get_visible(GTK_WIDGET(writer->keys_sheet))) {
+    gtk_popover_popdown(writer->keys_sheet);
+    return;
+  }
+  GtkWidget* parent = gtk_widget_get_parent(GTK_WIDGET(writer->keys_sheet));
+  const GdkRectangle top = {gtk_widget_get_width(parent) / 2, 64, 1, 1};
+  gtk_popover_set_pointing_to(writer->keys_sheet, &top);
+  gtk_popover_popup(writer->keys_sheet);
+}
+
+// The open sheet holds the keyboard, so its own key closes it again.
+gboolean on_keys_sheet_key(GtkEventControllerKey*, guint keyval, guint, GdkModifierType state, gpointer user_data) {
+  if (!is_keys_sheet_key(keyval, state & gtk_accelerator_get_default_mod_mask())) return false;
+  gtk_popover_popdown(static_cast<Writer*>(user_data)->keys_sheet);
+  return true;
+}
+
+GtkWidget* build_keys_sheet(Writer* writer, GtkWidget* parent) {
+  GtkWidget* sheet = gtk_popover_new();
+  writer->keys_sheet = GTK_POPOVER(sheet);
+  gtk_widget_add_css_class(sheet, "keys");
+  gtk_popover_set_has_arrow(writer->keys_sheet, false);
+  gtk_popover_set_position(writer->keys_sheet, GTK_POS_BOTTOM);
+  gtk_widget_set_parent(sheet, parent);
+  GtkWidget* grid = gtk_grid_new();
+  gtk_grid_set_column_spacing(GTK_GRID(grid), 28);
+  gtk_grid_set_row_spacing(GTK_GRID(grid), 3);
+  int row = 0;
+  for (const Shortcut& shortcut : kShortcuts) {
+    GtkWidget* keys = gtk_label_new(shortcut.keys);
+    gtk_widget_add_css_class(keys, "keys");
+    gtk_label_set_xalign(GTK_LABEL(keys), 1.0);
+    GtkWidget* action = gtk_label_new(shortcut.action);
+    gtk_label_set_xalign(GTK_LABEL(action), 0.0);
+    gtk_grid_attach(GTK_GRID(grid), keys, 0, row, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), action, 1, row, 1, 1);
+    ++row;
+  }
+  gtk_popover_set_child(writer->keys_sheet, grid);
+  g_signal_connect(sheet, "closed", G_CALLBACK(on_switcher_closed), writer);
+  GtkEventController* keys = gtk_event_controller_key_new();
+  gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+  g_signal_connect(keys, "key-pressed", G_CALLBACK(on_keys_sheet_key), writer);
+  gtk_widget_add_controller(sheet, keys);
+  return sheet;
+}
+
 void reload_from_disk(Writer* writer) {
   if (!g_file_test(writer->document_path.c_str(), G_FILE_TEST_EXISTS)) return;
   if (writer->pending_save != 0) {
@@ -827,6 +883,10 @@ void open_document(GtkButton*, gpointer user_data) {
 gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierType state, gpointer user_data) {
   auto* writer = static_cast<Writer*>(user_data);
   const auto modifiers = state & gtk_accelerator_get_default_mod_mask();
+  if (is_keys_sheet_key(keyval, modifiers)) {
+    toggle_keys_sheet(writer);
+    return true;
+  }
   if (keyval == GDK_KEY_F11) {
     toggle_focus_mode(writer);
     return true;
@@ -1082,6 +1142,8 @@ void on_activate(GtkApplication* app, gpointer) {
   g_signal_connect(switcher_keys, "key-pressed", G_CALLBACK(on_switcher_key), writer);
   gtk_widget_add_controller(switcher_entry, switcher_keys);
 
+  build_keys_sheet(writer, root);
+
   g_signal_connect(writer->buffer, "changed", G_CALLBACK(on_buffer_changed), writer);
   g_signal_connect(writer->buffer, "mark-set", G_CALLBACK(on_cursor_moved), writer);
   g_signal_connect(search_entry, "changed", G_CALLBACK(on_search_changed), writer);
@@ -1104,6 +1166,8 @@ void on_activate(GtkApplication* app, gpointer) {
     popover.essays > contents { padding: 10px; border-radius: 8px; box-shadow: none; }
     popover.essays row { padding: 7px 10px; border-radius: 5px; font-family: Literata, C059, serif; font-size: 15px; }
     popover.essays .essay-date { font-family: sans-serif; font-size: 12px; }
+    popover.keys > contents { padding: 18px 28px; border-radius: 8px; box-shadow: none; font-family: Literata, C059, serif; font-size: 14px; }
+    popover.keys .keys { font-family: sans-serif; font-size: 12px; }
     textview:focus { outline: none; }
     .header, separator { transition: opacity 400ms ease; }
     .quiet { opacity: 0; }

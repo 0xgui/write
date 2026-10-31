@@ -4,40 +4,51 @@
 
 ![Write, a calm page for writing](assets/write-banner.png)
 
-Write opens to one quiet page. It saves plain text, gets out of the way, and
-keeps every control behind a shortcut.
+Write opens to one quiet page, so you can put your ideas on paper and see
+where they go. There are no goals, streaks, or counters to keep up with.
+It saves plain text by itself and keeps every control behind a shortcut.
 
-## Made for writing
+![Night paper with focus dimming](docs/screenshots/night.png)
 
-- A centred, paper-like writing column set in Literata.
-- Plain UTF-8 `.txt` files—choose where they live.
-- An essays folder: each new essay is its own file, named from the date and its
-  first line, and Write reopens the one you were on.
-- Quiet, crash-safe autosave (written to a temporary file, then swapped in).
-- Timestamped backups: one when a file opens, then at most every five minutes
-  while you write; the newest 20 per file are kept.
-- A clear “Not saved” warning if saving fails, and a notice when another
-  program changes the file.
-- Find, focus mode, and text-size controls.
-- Typewriter scrolling keeps the line you are writing in the middle of the
-  page, and focus dimming can quiet every paragraph but the current one.
-- While you type, the header and pointer fade away; move the mouse to bring
-  them back.
-- Three papers: Light, a soft warm Dark, and a dim amber Night for late
-  writing. Dark and Night keep contrast gentle (about 9.6:1 and 6.8:1) to cut
-  glare, and the soft amber caret, selection, find field, and scrollbar follow the paper.
-- Your paper, text size, word-count, focus-dimming, and typewriter choices are
-  remembered. On first launch
-  Write starts on Dark if your desktop prefers dark.
-- Your cursor position is remembered for each document.
+## Features
+
+- **Three papers.** Light, a soft warm Dark, and a dim amber Night for late
+  writing. `Ctrl+Shift+D` cycles them. Dark and Night keep contrast gentle
+  (about 9.6:1 and 6.8:1) to cut glare, and the soft amber caret, selection,
+  and scrollbar follow the paper. On first launch Write starts on Dark if your
+  desktop prefers dark.
+- **Essays as separate files.** Each essay is its own plain `.txt` file in
+  `~/Documents/Essays`, named from the date and its first line. `Ctrl+N`
+  starts a new one, `Ctrl+E` lets you search and switch, and Write reopens the
+  one you were on.
+- **Autosave and backups.** Every change is saved quietly and crash-safely
+  (written to a temporary file, then swapped in). Timestamped backups are taken
+  when a file opens and then at most every five minutes; the newest 20 per file
+  are kept. A clear “Not saved” warning appears if saving ever fails, and Write
+  notices when another program changes the file.
+- **Focus dimming.** `Ctrl+Shift+F` quiets every paragraph but the one you are
+  writing.
+- **Typewriter scrolling.** The line you are writing stays in the middle of the
+  page (on by default, `Ctrl+Shift+T`).
+- **Quiet chrome.** While you type, the header and pointer fade away; move the
+  mouse to bring them back. `F11` goes fullscreen with no header at all.
+- **Find and text size.** `Ctrl+F` finds text; `Ctrl+=`, `Ctrl+-`, and
+  `Ctrl+0` change the size of the type, set in Literata.
+- **Shortcuts at hand.** `Ctrl+/` or `F1` shows every shortcut on a sheet that
+  matches the paper.
+
+Your paper, text size, word count, focus dimming, typewriter scrolling, and the
+cursor position in each document are remembered.
 
 There are no accounts, cloud services, databases, web views, formatting
-toolbars, document libraries, or telemetry.
+toolbars, or telemetry. The executable is well under 100 KB; GTK remains a
+normal system dependency and is never bundled into a huge package.
 
-The executable is roughly 36 KB. GTK remains a normal system dependency; it is
-never bundled into a huge application package.
+| Light paper | Switching essays (`Ctrl+E`) | Shortcuts (`Ctrl+/`) |
+| --- | --- | --- |
+| ![Light paper](docs/screenshots/light.png) | ![The essay switcher](docs/screenshots/switcher.png) | ![The shortcuts sheet](docs/screenshots/keys.png) |
 
-## Build and run
+## Install
 
 Write uses C++20 and GTK4 (version 4.10 or newer).
 
@@ -52,7 +63,17 @@ sudo make install
 On another Linux distribution, install a C++ compiler, GNU Make, `pkg-config`,
 and the GTK4 development package, then run the same last two commands.
 
-Launch it with:
+To install just for yourself, without `sudo`, into `~/.local`:
+
+```sh
+make PREFIX=$HOME/.local
+make PREFIX=$HOME/.local install
+```
+
+Use the same `PREFIX` for both commands, because the font location is built
+in. Make sure `~/.local/bin` is on your `PATH`.
+
+Launch it from your app menu, or with:
 
 ```sh
 write
@@ -62,38 +83,36 @@ write notes/today.txt
 A file argument opens that file, in the running window if Write is already open.
 A missing file is created on the first save.
 
-Run the storage and settings tests with `make test`.
-
-To run it from the source tree without installing it:
-
-```sh
-make run
-```
-
-Use `PREFIX=... make install` for a different install prefix.
+To run it from the source tree without installing it, use `make run`. Run the
+tests with `make test`.
 
 ## Keyboard shortcuts
 
-- `Enter` — new paragraph (with breathing room)
-- `Shift` + `Enter` — new line
-- `Ctrl` + `N` — new essay (the current one is saved first)
-- `Ctrl` + `E` — switch essay: type to filter, `↑`/`↓` to choose, `Enter`
-  opens, `Esc` closes
-- `Ctrl` + `O` — open a text file
-- `Ctrl` + `S` — save immediately
-- `Ctrl` + `Shift` + `S` — choose where to save
-- `Ctrl` + `F` — find text; `Enter` finds next, `Shift` + `Enter` finds previous, `Esc` closes
-- `Ctrl` + `+` / `Ctrl` + `=` — increase text size
-- `Ctrl` + `-` — decrease text size
-- `Ctrl` + `0` — reset text size
-- `Ctrl` + `Shift` + `D` — switch paper: Light → Dark → Night
-- `Ctrl` + `R` — reload the file from disk after another program changed it
-  (your current text is backed up first)
-- `Ctrl` + `Shift` + `W` — show or hide the word count
-- `Ctrl` + `Shift` + `F` — focus dimming: dim all but the current paragraph
-- `Ctrl` + `Shift` + `T` — typewriter scrolling on or off (on by default)
-- `Ctrl` + `Shift` + `I` — show the active writing typeface
-- `F11` — focus mode (fullscreen, no header)
+Press `Ctrl+/` or `F1` in Write to see these on the page; `Esc` or the same key
+closes the sheet.
+
+| Keys | Action |
+| --- | --- |
+| `Enter` | New paragraph (with breathing room) |
+| `Shift+Enter` | New line |
+| `Ctrl+N` | New essay (the current one is saved first) |
+| `Ctrl+E` | Switch essay: type to filter, `↑`/`↓` to choose, `Enter` opens, `Esc` closes |
+| `Ctrl+O` | Open a text file |
+| `Ctrl+S` | Save immediately |
+| `Ctrl+Shift+S` | Choose where to save |
+| `Ctrl+F` | Find text: `Enter` finds next, `Shift+Enter` finds previous, `Esc` closes |
+| `Ctrl+R` | Reload the file from disk after another program changed it (your text is backed up first) |
+| `Ctrl+Shift+D` | Switch paper: Light → Dark → Night |
+| `Ctrl+Shift+F` | Focus dimming: dim all but the current paragraph |
+| `Ctrl+Shift+T` | Typewriter scrolling on or off (on by default) |
+| `Ctrl+Shift+W` | Show or hide the word count |
+| `Ctrl+=` | Larger text (`Ctrl++` works too) |
+| `Ctrl+-` | Smaller text |
+| `Ctrl+0` | Reset text size |
+| `Ctrl+Shift+I` | Show the active writing typeface |
+| `F11` | Focus mode: fullscreen, no header |
+| `Ctrl+/` | Show or hide these shortcuts |
+| `F1` | Show or hide these shortcuts |
 
 ## Data and portability
 
