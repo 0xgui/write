@@ -1,9 +1,12 @@
+#include <glib/gstdio.h>
 #include <gtk/gtk.h>
 
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <vector>
 
+#include "essays.h"
 #include "fonts.h"
 #include "positions.h"
 #include "settings.h"
@@ -27,10 +30,17 @@ struct Writer {
   GtkWidget* divider = nullptr;
   GtkWidget* search_container = nullptr;
   GtkSearchEntry* search_entry = nullptr;
+  GtkPopover* switcher = nullptr;
+  GtkSearchEntry* switcher_entry = nullptr;
+  GtkListBox* switcher_list = nullptr;
+  std::vector<Essay> essays;  // what the switcher lists, newest first
   GtkCssProvider* text_css = nullptr;
   GtkCssProvider* theme_css = nullptr;
   GKeyFile* positions = nullptr;
-  std::string document_path;
+  std::string document_path;  // empty for a new essay that has no text yet
+  std::string essays_dir;
+  std::string essay_started;  // "2026-10-31 2214" for the new essay's file name
+  bool essay_named_by_time = false;  // renamed from its first line once that line is finished
   std::string positions_path;
   std::string settings_path;
   guint pending_save = 0;
@@ -73,6 +83,7 @@ void update_word_count(Writer* writer) {
 }
 
 void show_notification(Writer* writer, const char* message, guint duration_ms = 1600);
+void remember_document(Writer* writer);
 
 void set_save_failed(Writer* writer, bool failed) {
   if (writer->save_failed == failed) return;
@@ -119,7 +130,7 @@ bool check_changed_on_disk(Writer* writer, bool about_to_save) {
 }
 
 void save_cursor_position(Writer* writer) {
-  if (writer->positions == nullptr || writer->positions_path.empty()) return;
+  if (writer->positions == nullptr || writer->positions_path.empty() || writer->document_path.empty()) return;
   GtkTextIter cursor;
   gtk_text_buffer_get_iter_at_mark(
       writer->buffer, &cursor, gtk_text_buffer_get_insert(writer->buffer));
@@ -149,6 +160,7 @@ bool load_document(Writer* writer, const char* path) {
 
   writer->loading_document = true;
   writer->document_path = path;
+  writer->essay_named_by_time = false;
   gtk_text_buffer_set_text(writer->buffer, text, static_cast<gint>(length));
   restore_cursor_position(writer);
   writer->loading_document = false;
@@ -157,12 +169,43 @@ bool load_document(Writer* writer, const char* path) {
   take_backup(writer, text, length);
   g_free(text);
   update_word_count(writer);
+  remember_document(writer);
+  return true;
+}
+
+// A new essay gets its file on the first save that has text. Until its first
+// line is finished it is named by date and time, then renamed once from that line.
+bool name_essay(Writer* writer, const char* text) {
+  const std::string title = essay_title(text);
+  const bool finished = essay_title_finished(text);
+  if (writer->document_path.empty()) {
+    if (title.empty() || writer->essay_started.size() < 12) return false;  // no text yet, so no empty files
+    const std::string date = writer->essay_started.substr(0, 10);
+    const std::string time = writer->essay_started.substr(11);
+    writer->document_path = essay_unused_path(writer->essays_dir, essay_file_name(date, time, finished ? title : ""));
+    writer->essay_named_by_time = !finished;
+  } else if (writer->essay_named_by_time && finished) {
+    writer->essay_named_by_time = false;
+    char* directory = g_path_get_dirname(writer->document_path.c_str());
+    const std::string renamed = essay_unused_path(
+        directory, essay_file_name(writer->essay_started.substr(0, 10), "", title));
+    g_free(directory);
+    if (g_rename(writer->document_path.c_str(), renamed.c_str()) == 0) {
+      writer->document_path = renamed;
+    } else {
+      g_warning("Write could not rename the essay to %s", renamed.c_str());
+    }
+  }
   return true;
 }
 
 void save(Writer* writer) {
   char* text = buffer_text(writer->buffer);
   const gsize length = strlen(text);
+  if ((writer->document_path.empty() || writer->essay_named_by_time) && !name_essay(writer, text)) {
+    g_free(text);
+    return;
+  }
   char* directory = g_path_get_dirname(writer->document_path.c_str());
   std::string error;
 
@@ -174,6 +217,7 @@ void save(Writer* writer) {
     if (atomic_write(writer->document_path, text, length, &error)) {
       writer->known_mtime = file_mtime(writer->document_path);
       save_cursor_position(writer);
+      if (writer->settings.last_document != writer->document_path) remember_document(writer);
       error.clear();
     } else if (error.empty()) {
       error = "unknown error";
@@ -320,9 +364,14 @@ void apply_theme(Writer* writer) {
       scrollbar, scrollbar trough { background: transparent; border: none; }
       scrollbar slider { background-color: %s; border: none; min-width: 4px; }
       scrollbar slider:hover, scrollbar slider:active { background-color: %s; }
+      popover.essays > contents { background: %s; color: %s; border: 1px solid %s; }
+      popover.essays list, popover.essays row { background: transparent; color: %s; }
+      popover.essays row:selected { background-color: %s; }
+      popover.essays .essay-date { color: %s; }
     )",
       p.paper, p.ink, p.caret, p.selection, p.ink, p.status, p.error, p.notification, p.rule,
-      p.field, p.ink, p.field_border, p.caret, p.focus, p.status, p.slider, p.focus);
+      p.field, p.ink, p.field_border, p.caret, p.focus, p.status, p.slider, p.focus,
+      p.paper, p.ink, p.field_border, p.ink, p.selection, p.status);
   gtk_css_provider_load_from_string(writer->theme_css, css);
   g_free(css);
   // Lets GTK's own pieces, like the file dialog, follow the paper too.
@@ -358,6 +407,12 @@ void save_settings(Writer* writer) {
   if (!settings_save(writer->settings_path, writer->settings)) {
     g_warning("Write could not save its preferences to %s", writer->settings_path.c_str());
   }
+}
+
+void remember_document(Writer* writer) {
+  if (writer->document_path.empty()) return;
+  writer->settings.last_document = writer->document_path;
+  save_settings(writer);
 }
 
 void change_font_size(Writer* writer, int size, const char* message) {
@@ -396,6 +451,7 @@ void on_save_as_finished(GObject* source, GAsyncResult* result, gpointer user_da
     char* path = g_file_get_path(selected_file);
     if (path != nullptr) {
       writer->document_path = path;
+      writer->essay_named_by_time = false;
       writer->known_mtime = -1;
       writer->last_backup_us = 0;
       g_free(path);
@@ -526,11 +582,107 @@ void switch_document(Writer* writer, const char* path) {
   }
   writer->loading_document = true;
   writer->document_path = path;
+  writer->essay_named_by_time = false;
   gtk_text_buffer_set_text(writer->buffer, "", 0);
   writer->loading_document = false;
   writer->known_mtime = -1;
   writer->last_backup_us = 0;
   update_word_count(writer);
+}
+
+void new_essay(Writer* writer) {
+  if (writer->document_path.empty() && gtk_text_buffer_get_char_count(writer->buffer) == 0) return;
+  switch_document(writer, "");
+  GDateTime* now = g_date_time_new_now_local();
+  char* started = g_date_time_format(now, "%Y-%m-%d %H%M");
+  writer->essay_started = started;
+  g_free(started);
+  g_date_time_unref(now);
+  show_notification(writer, "New essay");
+}
+
+void fill_switcher(Writer* writer) {
+  const char* query = gtk_editable_get_text(GTK_EDITABLE(writer->switcher_entry));
+  while (GtkWidget* old = gtk_widget_get_first_child(GTK_WIDGET(writer->switcher_list))) {
+    gtk_list_box_remove(writer->switcher_list, old);
+  }
+  for (const Essay& essay : writer->essays) {
+    if (!essay_matches(essay, query)) continue;
+    GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    GtkWidget* title = gtk_label_new(essay.title.c_str());
+    gtk_label_set_ellipsize(GTK_LABEL(title), PANGO_ELLIPSIZE_END);
+    gtk_label_set_xalign(GTK_LABEL(title), 0.0);
+    gtk_widget_set_hexpand(title, true);
+    GDateTime* modified = g_date_time_new_from_unix_local(essay.modified_us / G_USEC_PER_SEC);
+    char* date = g_date_time_format(modified, "%e %b");
+    GtkWidget* when = gtk_label_new(g_strstrip(date));
+    g_free(date);
+    g_date_time_unref(modified);
+    gtk_widget_add_css_class(when, "essay-date");
+    gtk_box_append(GTK_BOX(row), title);
+    gtk_box_append(GTK_BOX(row), when);
+    gtk_list_box_append(writer->switcher_list, row);
+    g_object_set_data_full(G_OBJECT(gtk_widget_get_parent(row)), "essay-path", g_strdup(essay.path.c_str()), g_free);
+  }
+  gtk_list_box_select_row(writer->switcher_list, gtk_list_box_get_row_at_index(writer->switcher_list, 0));
+}
+
+void show_switcher(Writer* writer) {
+  writer->essays = essays_list(writer->essays_dir);
+  gtk_editable_set_text(GTK_EDITABLE(writer->switcher_entry), "");
+  fill_switcher(writer);
+  GtkWidget* parent = gtk_widget_get_parent(GTK_WIDGET(writer->switcher));
+  const GdkRectangle top = {gtk_widget_get_width(parent) / 2, 64, 1, 1};
+  gtk_popover_set_pointing_to(writer->switcher, &top);
+  gtk_popover_popup(writer->switcher);
+  gtk_widget_grab_focus(GTK_WIDGET(writer->switcher_entry));
+}
+
+void open_selected_essay(Writer* writer) {
+  GtkListBoxRow* row = gtk_list_box_get_selected_row(writer->switcher_list);
+  if (row == nullptr) return;
+  const std::string path = static_cast<const char*>(g_object_get_data(G_OBJECT(row), "essay-path"));
+  gtk_popover_popdown(writer->switcher);
+  if (path != writer->document_path) switch_document(writer, path.c_str());
+}
+
+void on_switcher_changed(GtkEditable*, gpointer user_data) {
+  fill_switcher(static_cast<Writer*>(user_data));
+}
+
+void on_switcher_activated(GtkEntry*, gpointer user_data) {
+  open_selected_essay(static_cast<Writer*>(user_data));
+}
+
+void on_switcher_row_activated(GtkListBox*, GtkListBoxRow* row, gpointer user_data) {
+  auto* writer = static_cast<Writer*>(user_data);
+  gtk_list_box_select_row(writer->switcher_list, row);
+  open_selected_essay(writer);
+}
+
+void on_switcher_stop(GtkSearchEntry*, gpointer user_data) {
+  gtk_popover_popdown(static_cast<Writer*>(user_data)->switcher);
+}
+
+void on_switcher_closed(GtkPopover*, gpointer user_data) {
+  gtk_widget_grab_focus(GTK_WIDGET(static_cast<Writer*>(user_data)->editor));
+}
+
+// Up and Down move through the list while the filter keeps the focus.
+gboolean on_switcher_key(GtkEventControllerKey*, guint keyval, guint, GdkModifierType, gpointer user_data) {
+  auto* writer = static_cast<Writer*>(user_data);
+  if (keyval != GDK_KEY_Down && keyval != GDK_KEY_Up) return false;
+  GtkListBoxRow* row = gtk_list_box_get_selected_row(writer->switcher_list);
+  const int index = row != nullptr ? gtk_list_box_row_get_index(row) + (keyval == GDK_KEY_Down ? 1 : -1) : 0;
+  if (GtkListBoxRow* next = gtk_list_box_get_row_at_index(writer->switcher_list, std::max(0, index))) {
+    gtk_list_box_select_row(writer->switcher_list, next);
+    GtkAdjustment* scroll = gtk_list_box_get_adjustment(writer->switcher_list);
+    graphene_rect_t bounds;
+    if (scroll != nullptr && gtk_widget_compute_bounds(GTK_WIDGET(next), GTK_WIDGET(writer->switcher_list), &bounds)) {
+      gtk_adjustment_clamp_page(scroll, bounds.origin.y, bounds.origin.y + bounds.size.height);
+    }
+  }
+  return true;
 }
 
 void reload_from_disk(Writer* writer) {
@@ -593,6 +745,15 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
     gtk_widget_set_visible(writer->search_container, true);
     gtk_widget_set_visible(GTK_WIDGET(writer->status), false);
     gtk_widget_grab_focus(GTK_WIDGET(writer->search_entry));
+    return true;
+  }
+
+  if (keyval == GDK_KEY_n || keyval == GDK_KEY_N) {
+    new_essay(writer);
+    return true;
+  }
+  if (keyval == GDK_KEY_e || keyval == GDK_KEY_E) {
+    show_switcher(writer);
     return true;
   }
 
@@ -688,6 +849,13 @@ void on_activate(GtkApplication* app, gpointer) {
   g_free(settings_path);
   writer->settings = settings_load(writer->settings_path);
   if (!writer->settings.paper_saved && system_prefers_dark()) writer->settings.paper = Paper::Dark;
+  if (writer->settings.essays_dir.empty()) {
+    writer->settings.essays_dir = default_essays_dir(g_get_user_special_dir(G_USER_DIRECTORY_DOCUMENTS), g_get_home_dir());
+  }
+  writer->essays_dir = expand_home(writer->settings.essays_dir, g_get_home_dir());
+  if (!writer->settings.last_document.empty() && g_file_test(writer->settings.last_document.c_str(), G_FILE_TEST_EXISTS)) {
+    writer->document_path = writer->settings.last_document;
+  }
 
   GtkWidget* window = gtk_application_window_new(app);
   writer->window = GTK_WINDOW(window);
@@ -766,6 +934,41 @@ void on_activate(GtkApplication* app, gpointer) {
   }
   update_word_count(writer);
 
+  GtkWidget* switcher = gtk_popover_new();
+  writer->switcher = GTK_POPOVER(switcher);
+  gtk_widget_add_css_class(switcher, "essays");
+  gtk_popover_set_has_arrow(writer->switcher, false);
+  gtk_popover_set_position(writer->switcher, GTK_POS_BOTTOM);
+  gtk_widget_set_parent(switcher, root);
+  GtkWidget* switcher_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  GtkWidget* switcher_entry = gtk_search_entry_new();
+  writer->switcher_entry = GTK_SEARCH_ENTRY(switcher_entry);
+  gtk_search_entry_set_placeholder_text(writer->switcher_entry, "Essays");
+  gtk_widget_add_css_class(switcher_entry, "find-entry");
+  GtkWidget* switcher_scroller = gtk_scrolled_window_new();
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(switcher_scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(switcher_scroller), true);
+  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(switcher_scroller), 320);
+  gtk_widget_set_size_request(switcher_scroller, 420, -1);
+  GtkWidget* switcher_list = gtk_list_box_new();
+  writer->switcher_list = GTK_LIST_BOX(switcher_list);
+  gtk_list_box_set_selection_mode(writer->switcher_list, GTK_SELECTION_BROWSE);
+  gtk_list_box_set_adjustment(writer->switcher_list,
+                              gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(switcher_scroller)));
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(switcher_scroller), switcher_list);
+  gtk_box_append(GTK_BOX(switcher_box), switcher_entry);
+  gtk_box_append(GTK_BOX(switcher_box), switcher_scroller);
+  gtk_popover_set_child(writer->switcher, switcher_box);
+  g_signal_connect(switcher_entry, "changed", G_CALLBACK(on_switcher_changed), writer);
+  g_signal_connect(switcher_entry, "activate", G_CALLBACK(on_switcher_activated), writer);
+  g_signal_connect(switcher_entry, "stop-search", G_CALLBACK(on_switcher_stop), writer);
+  g_signal_connect(switcher_list, "row-activated", G_CALLBACK(on_switcher_row_activated), writer);
+  g_signal_connect(switcher, "closed", G_CALLBACK(on_switcher_closed), writer);
+  GtkEventController* switcher_keys = gtk_event_controller_key_new();
+  gtk_event_controller_set_propagation_phase(switcher_keys, GTK_PHASE_CAPTURE);
+  g_signal_connect(switcher_keys, "key-pressed", G_CALLBACK(on_switcher_key), writer);
+  gtk_widget_add_controller(switcher_entry, switcher_keys);
+
   g_signal_connect(writer->buffer, "changed", G_CALLBACK(on_buffer_changed), writer);
   g_signal_connect(writer->buffer, "mark-set", G_CALLBACK(on_cursor_moved), writer);
   g_signal_connect(search_entry, "changed", G_CALLBACK(on_search_changed), writer);
@@ -785,6 +988,9 @@ void on_activate(GtkApplication* app, gpointer) {
     .find-container { margin-right: 12px; }
     entry.find-entry { min-height: 28px; padding: 0 8px; border: 1px solid; border-radius: 5px; font-size: 13px; box-shadow: none; outline: none; }
     separator { min-height: 1px; }
+    popover.essays > contents { padding: 10px; border-radius: 8px; box-shadow: none; }
+    popover.essays row { padding: 7px 10px; border-radius: 5px; font-family: Literata, C059, serif; font-size: 15px; }
+    popover.essays .essay-date { font-family: sans-serif; font-size: 12px; }
     textview:focus { outline: none; }
   )");
   gtk_style_context_add_provider_for_display(

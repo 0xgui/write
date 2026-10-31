@@ -14,6 +14,8 @@ struct Settings {
   bool paper_saved = false;  // false until the writer picks a paper
   int font_size = kDefaultFontSize;
   bool show_word_count = true;
+  std::string essays_dir;     // empty means the default folder
+  std::string last_document;  // reopened on launch
 };
 
 Paper next_paper(Paper paper);

@@ -11,6 +11,8 @@ keeps every control behind a shortcut.
 
 - A centred, paper-like writing column set in Literata.
 - Plain UTF-8 `.txt` files—choose where they live.
+- An essays folder: each new essay is its own file, named from the date and its
+  first line, and Write reopens the one you were on.
 - Quiet, crash-safe autosave (written to a temporary file, then swapped in).
 - Timestamped backups: one when a file opens, then at most every five minutes
   while you write; the newest 20 per file are kept.
@@ -69,6 +71,9 @@ Use `PREFIX=... make install` for a different install prefix.
 
 - `Enter` — new paragraph (with breathing room)
 - `Shift` + `Enter` — new line
+- `Ctrl` + `N` — new essay (the current one is saved first)
+- `Ctrl` + `E` — switch essay: type to filter, `↑`/`↓` to choose, `Enter`
+  opens, `Esc` closes
 - `Ctrl` + `O` — open a text file
 - `Ctrl` + `S` — save immediately
 - `Ctrl` + `Shift` + `S` — choose where to save
@@ -89,8 +94,16 @@ Your writing is ordinary text and remains portable independently of the app.
 Until you use Save As, the default document is stored at
 `~/.local/share/write/document.txt`; its cursor-position metadata lives only in
 the matching app-data folder. Backups live in `~/.local/share/write/backups/`, one folder per document.
-Preferences (paper, text size, word count) live in
-`~/.config/write/settings.ini`; delete it to return to the defaults.
+Preferences (paper, text size, word count, the essays folder, and the last
+document you had open) live in `~/.config/write/settings.ini`; delete it to
+return to the defaults.
+
+Essays live in `~/Documents/Essays` (or `~/Essays` without a Documents folder);
+change `essays-folder` in `settings.ini` to keep them elsewhere. A new essay
+becomes a file only once it has text. Until its first line is finished it is
+named by date and time, such as `2026-10-31 2214.txt`; when you press `Enter`
+after that line it is renamed once, to `2026-10-31 on solitude.txt`. After that
+the name stays put, so rename the file by hand if the title changes.
 Copy the `.txt` file anywhere; it needs no Write
 database to remain yours.
 

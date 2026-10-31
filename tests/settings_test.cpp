@@ -39,11 +39,16 @@ int main() {
   chosen.paper_saved = true;
   chosen.font_size = 23;
   chosen.show_word_count = false;
+  chosen.essays_dir = "~/Writing/Essays";
+  chosen.last_document = "/tmp/essays/2026-10-31 on solitude.txt";
   check(settings_save(path, chosen), "settings save into a new folder");
   const Settings loaded = settings_load(path);
   check(loaded.paper == Paper::Night && loaded.paper_saved, "the chosen paper survives a relaunch");
   check(loaded.font_size == 23, "the text size survives a relaunch");
   check(!loaded.show_word_count, "the word count choice survives a relaunch");
+  check(loaded.essays_dir == "~/Writing/Essays", "the essays folder survives a relaunch");
+  check(loaded.last_document == chosen.last_document, "the last essay survives a relaunch");
+  check(fresh.essays_dir.empty() && fresh.last_document.empty(), "no folder or essay is assumed");
 
   Settings unchosen;
   unchosen.font_size = 18;
