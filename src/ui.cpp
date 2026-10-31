@@ -6,6 +6,7 @@
 
 #include "fonts.h"
 #include "positions.h"
+#include "settings.h"
 #include "storage.h"
 #include "ui.h"
 
@@ -14,9 +15,6 @@ namespace {
 constexpr auto kSaveDelayMs = 350;
 constexpr auto kReadingWidth = 560;
 constexpr auto kBottomPaperMargin = 260;
-constexpr auto kDefaultFontSize = 20;
-constexpr auto kSmallestFontSize = 14;
-constexpr auto kLargestFontSize = 32;
 
 struct Writer {
   GtkTextBuffer* buffer = nullptr;
@@ -34,16 +32,15 @@ struct Writer {
   GKeyFile* positions = nullptr;
   std::string document_path;
   std::string positions_path;
+  std::string settings_path;
   guint pending_save = 0;
   guint notification_timeout = 0;
   guint cursor_guard_source = 0;
   int editor_width = 0;
-  int font_size = kDefaultFontSize;
+  Settings settings;
   bool focus_mode = false;
   bool literata_available = false;
-  bool dark_mode = false;
   bool loading_document = false;
-  bool show_word_count = true;
   bool save_failed = false;
   std::string backups_root;
   gint64 last_backup_us = 0;
@@ -70,7 +67,7 @@ void update_word_count(Writer* writer) {
   char* text = buffer_text(writer->buffer);
   const auto count = word_count(text);
   char* label = g_strdup_printf("%u %s", count, count == 1 ? "word" : "words");
-  gtk_label_set_text(writer->status, writer->show_word_count ? label : "");
+  gtk_label_set_text(writer->status, writer->settings.show_word_count ? label : "");
   g_free(label);
   g_free(text);
 }
@@ -276,30 +273,100 @@ gboolean maintain_writing_column(GtkWidget*, GdkFrameClock*, gpointer user_data)
 void apply_font_size(Writer* writer) {
   char* css = g_strdup_printf(
       "textview, textview text { font-family: Literata, C059, serif; font-size: %dpx; line-height: 1.5; }",
-      writer->font_size);
+      writer->settings.font_size);
   gtk_css_provider_load_from_string(writer->text_css, css);
   g_free(css);
 }
 
+struct Palette {
+  const char* paper;
+  const char* ink;
+  const char* status;
+  const char* notification;
+  const char* error;
+  const char* rule;
+  const char* field;
+  const char* field_border;
+  const char* focus;
+  const char* caret;
+  const char* selection;
+  const char* slider;
+};
+
+// Contrast of ink on paper (WCAG): Light 12.5:1, Dark 9.6:1, Night 6.8:1.
+// The darker papers trade a little contrast for less glare and halation.
+constexpr Palette kLight = {"#f7f3ea", "#312c25", "#91897c", "#857a6b", "#b4442f", "#ddd6ca", "#f0ebe1",
+                            "#d7cfc2", "#9b8971", "#5a4a36", "rgba(155, 137, 113, 0.28)", "rgba(49, 44, 37, 0.22)"};
+constexpr Palette kDark = {"#1c1a17", "#c9bfaf", "#958a7a", "#958a7a", "#d9785e", "#2f2b26", "#25221e",
+                           "#3d3830", "#a08a6c", "#d8b98a", "rgba(160, 138, 108, 0.34)", "rgba(201, 191, 175, 0.20)"};
+constexpr Palette kNight = {"#14110d", "#b39770", "#927a5a", "#927a5a", "#c4704f", "#251f19", "#1c1813",
+                            "#332b22", "#8a6f4d", "#c9a26e", "rgba(150, 115, 70, 0.34)", "rgba(179, 151, 112, 0.16)"};
+
 void apply_theme(Writer* writer) {
-  const char* css = writer->dark_mode
-      ? R"(
-        window.write-window, .header, textview, textview text { background: #191714; color: #e9e1d4; }
-        .status, .notification { color: #a69a89; }
-        .status.save-error { color: #e07a5f; font-weight: bold; }
-        separator { background: #39342d; }
-        entry.find-entry { background: #26221d; color: #e9e1d4; border-color: #4a4339; }
-        entry.find-entry:focus { border-color: #aa9474; box-shadow: 0 0 0 2px rgba(170, 148, 116, 0.20); }
-      )"
-      : R"(
-        window.write-window, .header, textview, textview text { background: #f7f3ea; color: #312c25; }
-        .status { color: #91897c; }
-        .status.save-error { color: #b4442f; font-weight: bold; }
-        .notification { color: #857a6b; }
-        separator { background: #ddd6ca; }
-        entry.find-entry { background: #f0ebe1; color: #312c25; border-color: #d7cfc2; }
-      )";
+  const Palette& p = writer->settings.paper == Paper::Night ? kNight
+                   : writer->settings.paper == Paper::Dark  ? kDark
+                                                            : kLight;
+  char* css = g_strdup_printf(R"(
+      window.write-window, .header, textview, textview text { background: %s; color: %s; }
+      textview text { caret-color: %s; }
+      textview text selection { background-color: %s; color: %s; }
+      .status { color: %s; }
+      .status.save-error { color: %s; font-weight: bold; }
+      .notification { color: %s; }
+      separator { background: %s; }
+      entry.find-entry { background: %s; color: %s; border-color: %s; caret-color: %s; }
+      entry.find-entry:focus { border-color: %s; }
+      entry.find-entry image { color: %s; }
+      scrollbar, scrollbar trough { background: transparent; border: none; }
+      scrollbar slider { background-color: %s; border: none; min-width: 4px; }
+      scrollbar slider:hover, scrollbar slider:active { background-color: %s; }
+    )",
+      p.paper, p.ink, p.caret, p.selection, p.ink, p.status, p.error, p.notification, p.rule,
+      p.field, p.ink, p.field_border, p.caret, p.focus, p.status, p.slider, p.focus);
   gtk_css_provider_load_from_string(writer->theme_css, css);
+  g_free(css);
+  // Lets GTK's own pieces, like the file dialog, follow the paper too.
+  g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
+               writer->settings.paper != Paper::Light, nullptr);
+}
+
+// The freedesktop portal's colour scheme: 1 means the desktop prefers dark.
+bool portal_prefers_dark() {
+  GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr);
+  if (bus == nullptr) return false;
+  GVariant* reply = g_dbus_connection_call_sync(
+      bus, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Settings",
+      "ReadOne", g_variant_new("(ss)", "org.freedesktop.appearance", "color-scheme"), G_VARIANT_TYPE("(v)"),
+      G_DBUS_CALL_FLAGS_NONE, 300, nullptr, nullptr);
+  g_object_unref(bus);
+  if (reply == nullptr) return false;
+  GVariant* value = nullptr;
+  g_variant_get(reply, "(v)", &value);
+  const bool dark = g_variant_is_of_type(value, G_VARIANT_TYPE_UINT32) && g_variant_get_uint32(value) == 1;
+  g_variant_unref(value);
+  g_variant_unref(reply);
+  return dark;
+}
+
+bool system_prefers_dark() {
+  gboolean prefer_dark = false;
+  g_object_get(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", &prefer_dark, nullptr);
+  return prefer_dark || portal_prefers_dark();
+}
+
+void save_settings(Writer* writer) {
+  if (!settings_save(writer->settings_path, writer->settings)) {
+    g_warning("Write could not save its preferences to %s", writer->settings_path.c_str());
+  }
+}
+
+void change_font_size(Writer* writer, int size, const char* message) {
+  writer->settings.font_size = std::clamp(size, kSmallestFontSize, kLargestFontSize);
+  apply_font_size(writer);
+  save_settings(writer);
+  char* text = message != nullptr ? g_strdup(message) : g_strdup_printf("Text size %d", writer->settings.font_size);
+  show_notification(writer, text);
+  g_free(text);
 }
 
 gboolean hide_notification(gpointer user_data) {
@@ -543,9 +610,11 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
     return true;
   }
   if ((keyval == GDK_KEY_d || keyval == GDK_KEY_D) && (modifiers & GDK_SHIFT_MASK) != 0) {
-    writer->dark_mode = !writer->dark_mode;
+    writer->settings.paper = next_paper(writer->settings.paper);
+    writer->settings.paper_saved = true;
     apply_theme(writer);
-    show_notification(writer, writer->dark_mode ? "Dark paper" : "Light paper");
+    save_settings(writer);
+    show_notification(writer, paper_name(writer->settings.paper));
     return true;
   }
   if (keyval == GDK_KEY_r || keyval == GDK_KEY_R) {
@@ -553,9 +622,10 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
     return true;
   }
   if ((keyval == GDK_KEY_w || keyval == GDK_KEY_W) && (modifiers & GDK_SHIFT_MASK) != 0) {
-    writer->show_word_count = !writer->show_word_count;
+    writer->settings.show_word_count = !writer->settings.show_word_count;
     update_word_count(writer);
-    show_notification(writer, writer->show_word_count ? "Word count on" : "Word count off");
+    save_settings(writer);
+    show_notification(writer, writer->settings.show_word_count ? "Word count on" : "Word count off");
     return true;
   }
   if ((keyval == GDK_KEY_i || keyval == GDK_KEY_I) && (modifiers & GDK_SHIFT_MASK) != 0) {
@@ -563,25 +633,15 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
     return true;
   }
   if (keyval == GDK_KEY_plus || keyval == GDK_KEY_equal) {
-    writer->font_size = std::min(kLargestFontSize, writer->font_size + 1);
-    apply_font_size(writer);
-    char* message = g_strdup_printf("Text size %d", writer->font_size);
-    show_notification(writer, message);
-    g_free(message);
+    change_font_size(writer, writer->settings.font_size + 1, nullptr);
     return true;
   }
   if (keyval == GDK_KEY_minus) {
-    writer->font_size = std::max(kSmallestFontSize, writer->font_size - 1);
-    apply_font_size(writer);
-    char* message = g_strdup_printf("Text size %d", writer->font_size);
-    show_notification(writer, message);
-    g_free(message);
+    change_font_size(writer, writer->settings.font_size - 1, nullptr);
     return true;
   }
   if (keyval == GDK_KEY_0) {
-    writer->font_size = kDefaultFontSize;
-    apply_font_size(writer);
-    show_notification(writer, "Text size reset");
+    change_font_size(writer, kDefaultFontSize, "Text size reset");
     return true;
   }
 
@@ -623,6 +683,11 @@ void on_activate(GtkApplication* app, gpointer) {
   char* backups_root = g_build_filename(g_get_user_data_dir(), "write", "backups", nullptr);
   writer->backups_root = backups_root;
   g_free(backups_root);
+  char* settings_path = g_build_filename(g_get_user_config_dir(), "write", "settings.ini", nullptr);
+  writer->settings_path = settings_path;
+  g_free(settings_path);
+  writer->settings = settings_load(writer->settings_path);
+  if (!writer->settings.paper_saved && system_prefers_dark()) writer->settings.paper = Paper::Dark;
 
   GtkWidget* window = gtk_application_window_new(app);
   writer->window = GTK_WINDOW(window);
@@ -699,6 +764,7 @@ void on_activate(GtkApplication* app, gpointer) {
   if (g_file_test(writer->document_path.c_str(), G_FILE_TEST_EXISTS)) {
     load_document(writer, writer->document_path.c_str());
   }
+  update_word_count(writer);
 
   g_signal_connect(writer->buffer, "changed", G_CALLBACK(on_buffer_changed), writer);
   g_signal_connect(writer->buffer, "mark-set", G_CALLBACK(on_cursor_moved), writer);
@@ -714,18 +780,12 @@ void on_activate(GtkApplication* app, gpointer) {
 
   GtkCssProvider* css = gtk_css_provider_new();
   gtk_css_provider_load_from_string(css, R"(
-    window.write-window { background: #f7f3ea; color: #29251f; }
-    .header { background: #f7f3ea; }
     .wordmark { font-family: Literata, C059, serif; font-size: 24px; font-style: italic; letter-spacing: -0.8px; }
-    .status { color: #91897c; font-size: 12px; }
-    .notification { color: #857a6b; font-size: 12px; }
+    .status, .notification { font-size: 12px; }
     .find-container { margin-right: 12px; }
-    entry.find-entry { min-height: 28px; padding: 0 8px; border: 1px solid #d7cfc2; border-radius: 5px; background: #f0ebe1; color: #312c25; font-size: 13px; box-shadow: none; }
-    entry.find-entry:focus { border-color: #9b8971; box-shadow: 0 0 0 2px rgba(155, 137, 113, 0.18); }
-    separator { background: #ddd6ca; min-height: 1px; }
-    textview, textview text { background: #f7f3ea; color: #312c25; }
+    entry.find-entry { min-height: 28px; padding: 0 8px; border: 1px solid; border-radius: 5px; font-size: 13px; box-shadow: none; outline: none; }
+    separator { min-height: 1px; }
     textview:focus { outline: none; }
-    scrollbar { background: transparent; }
   )");
   gtk_style_context_add_provider_for_display(
       gtk_widget_get_display(window), GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
