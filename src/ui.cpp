@@ -16,7 +16,7 @@
 namespace {
 
 constexpr auto kSaveDelayMs = 350;
-constexpr auto kReadingWidth = 560;
+constexpr auto kReadingWidth = 640;
 constexpr auto kBottomPaperMargin = 260;
 
 struct Writer {
