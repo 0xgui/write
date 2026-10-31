@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "encoding.h"
 #include "essays.h"
 #include "fonts.h"
 #include "positions.h"
@@ -172,10 +173,16 @@ bool load_document(Writer* writer, const char* path) {
     return false;
   }
 
+  // Text that is not UTF-8 is converted for the editor; the backup below keeps
+  // the original bytes, and the next save writes UTF-8.
+  const char* locale_charset = nullptr;
+  g_get_charset(&locale_charset);
+  std::string converted_from;
+  const std::string utf8 = text_to_utf8(text, length, locale_charset, &converted_from);
   writer->loading_document = true;
   writer->document_path = path;
   writer->essay_named_by_time = false;
-  gtk_text_buffer_set_text(writer->buffer, text, static_cast<gint>(length));
+  gtk_text_buffer_set_text(writer->buffer, utf8.data(), static_cast<gint>(utf8.size()));
   restore_cursor_position(writer);
   writer->loading_document = false;
   writer->known_mtime = file_mtime(writer->document_path);
@@ -184,6 +191,12 @@ bool load_document(Writer* writer, const char* path) {
   g_free(text);
   update_word_count(writer);
   remember_document(writer);
+  if (!converted_from.empty()) {
+    char* message = g_strdup_printf("Read as %s; saved as UTF-8 once you edit.\nThe original is in the backups.",
+                                    converted_from.c_str());
+    show_notification(writer, message, 8000);
+    g_free(message);
+  }
   return true;
 }
 

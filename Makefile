@@ -4,7 +4,7 @@ PREFIX ?= /usr/local
 CXXFLAGS := -std=c++20 -Os -Wall -Wextra -Wpedantic -DWRITE_DATA_DIR=\"$(PREFIX)/share/write\" $(shell pkg-config --cflags gtk4 fontconfig)
 LDFLAGS := -s
 LDLIBS := $(shell pkg-config --libs gtk4 fontconfig)
-SOURCES := src/main.cpp src/ui.cpp src/storage.cpp src/positions.cpp src/settings.cpp src/essays.cpp src/fonts.cpp
+SOURCES := src/main.cpp src/ui.cpp src/storage.cpp src/positions.cpp src/settings.cpp src/essays.cpp src/fonts.cpp src/encoding.cpp
 HEADERS := $(wildcard src/*.h)
 
 .PHONY: all run test install clean
@@ -31,11 +31,16 @@ build/shortcuts_test: tests/shortcuts_test.cpp src/shortcuts.h
 	@mkdir -p build
 	$(CXX) -std=c++20 -O1 -Wall -Wextra -Wpedantic $(shell pkg-config --cflags glib-2.0) tests/shortcuts_test.cpp -o $@ $(shell pkg-config --libs glib-2.0)
 
-test: build/storage_test build/settings_test build/essays_test build/shortcuts_test
+build/encoding_test: tests/encoding_test.cpp src/encoding.cpp src/encoding.h
+	@mkdir -p build
+	$(CXX) -std=c++20 -O1 -Wall -Wextra -Wpedantic $(shell pkg-config --cflags glib-2.0) tests/encoding_test.cpp src/encoding.cpp -o $@ $(shell pkg-config --libs glib-2.0)
+
+test: build/storage_test build/settings_test build/essays_test build/shortcuts_test build/encoding_test
 	./build/storage_test
 	./build/settings_test
 	./build/essays_test
 	./build/shortcuts_test
+	./build/encoding_test
 
 run: $(TARGET)
 	./$(TARGET)
