@@ -27,10 +27,15 @@ build/essays_test: tests/essays_test.cpp src/essays.cpp src/essays.h
 	@mkdir -p build
 	$(CXX) -std=c++20 -O1 -Wall -Wextra -Wpedantic $(shell pkg-config --cflags glib-2.0) tests/essays_test.cpp src/essays.cpp -o $@ $(shell pkg-config --libs glib-2.0)
 
-test: build/storage_test build/settings_test build/essays_test
+build/shortcuts_test: tests/shortcuts_test.cpp src/shortcuts.h
+	@mkdir -p build
+	$(CXX) -std=c++20 -O1 -Wall -Wextra -Wpedantic $(shell pkg-config --cflags glib-2.0) tests/shortcuts_test.cpp -o $@ $(shell pkg-config --libs glib-2.0)
+
+test: build/storage_test build/settings_test build/essays_test build/shortcuts_test
 	./build/storage_test
 	./build/settings_test
 	./build/essays_test
+	./build/shortcuts_test
 
 run: $(TARGET)
 	./$(TARGET)
