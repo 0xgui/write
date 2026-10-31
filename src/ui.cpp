@@ -2,6 +2,7 @@
 #include <gtk/gtk.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -17,7 +18,9 @@ namespace {
 
 constexpr auto kSaveDelayMs = 350;
 constexpr auto kReadingWidth = 640;
+constexpr auto kTopPaperMargin = 72;
 constexpr auto kBottomPaperMargin = 260;
+constexpr auto kDimmedInk = 0.38;  // alpha of the paragraphs focus dimming quiets
 
 struct Writer {
   GtkTextBuffer* buffer = nullptr;
@@ -47,6 +50,13 @@ struct Writer {
   guint notification_timeout = 0;
   guint cursor_guard_source = 0;
   int editor_width = 0;
+  int page_height = 0;
+  GtkTextTag* dimmed = nullptr;
+  int lit_start = -1;     // the undimmed paragraph, as characters from the start
+  int lit_from_end = -1;  // and characters from its end to the end of the text
+  bool chrome_quiet = false;
+  double pointer_x = 0;
+  double pointer_y = 0;
   Settings settings;
   bool focus_mode = false;
   bool literata_available = false;
@@ -83,6 +93,7 @@ void update_word_count(Writer* writer) {
 }
 
 void show_notification(Writer* writer, const char* message, guint duration_ms = 1600);
+void set_chrome_quiet(Writer* writer, bool quiet);
 void remember_document(Writer* writer);
 
 void set_save_failed(Writer* writer, bool failed) {
@@ -90,6 +101,7 @@ void set_save_failed(Writer* writer, bool failed) {
   writer->save_failed = failed;
   gtk_window_set_title(writer->window, failed ? "• Write — not saved" : "Write");
   if (failed) {
+    set_chrome_quiet(writer, false);
     gtk_label_set_text(writer->status, "Not saved");
     gtk_widget_add_css_class(GTK_WIDGET(writer->status), "save-error");
   } else {
@@ -247,9 +259,70 @@ void schedule_save(Writer* writer) {
 
 void schedule_cursor_guard(Writer* writer);
 
+// While the writer types, the header and pointer fade out; moving the mouse
+// brings them back. The header keeps its space, so the page never jumps.
+void set_chrome_quiet(Writer* writer, bool quiet) {
+  if (quiet && (writer->save_failed || gtk_widget_get_visible(writer->search_container))) return;
+  if (quiet == writer->chrome_quiet) return;
+  writer->chrome_quiet = quiet;
+  for (GtkWidget* chrome : {writer->header, writer->divider}) {
+    if (quiet) {
+      gtk_widget_add_css_class(chrome, "quiet");
+    } else {
+      gtk_widget_remove_css_class(chrome, "quiet");
+    }
+  }
+  gtk_widget_set_cursor_from_name(GTK_WIDGET(writer->editor), quiet ? "none" : "text");
+}
+
+void on_pointer_moved(GtkEventControllerMotion*, double x, double y, gpointer user_data) {
+  auto* writer = static_cast<Writer*>(user_data);
+  if (writer->chrome_quiet && std::abs(x - writer->pointer_x) + std::abs(y - writer->pointer_y) < 4) return;
+  writer->pointer_x = x;
+  writer->pointer_y = y;
+  set_chrome_quiet(writer, false);
+}
+
+// Dims everything outside the paragraph (text between blank lines) that holds
+// the cursor. Retags only when that paragraph's edges move: typing inside it
+// adds untagged text, so it stays lit without touching the rest.
+void refresh_focus_dimming(Writer* writer) {
+  GtkTextIter start;
+  GtkTextIter end;
+  gtk_text_buffer_get_bounds(writer->buffer, &start, &end);
+  if (!writer->settings.focus_dimming) {
+    if (writer->lit_start != -1) gtk_text_buffer_remove_tag(writer->buffer, writer->dimmed, &start, &end);
+    writer->lit_start = writer->lit_from_end = -1;
+    return;
+  }
+  GtkTextIter cursor;
+  GtkTextIter lit_start;
+  GtkTextIter lit_end;
+  GtkTextIter edge;
+  gtk_text_buffer_get_iter_at_mark(writer->buffer, &cursor, gtk_text_buffer_get_insert(writer->buffer));
+  if (!gtk_text_iter_backward_search(&cursor, "\n\n", GTK_TEXT_SEARCH_TEXT_ONLY, &edge, &lit_start, nullptr)) {
+    lit_start = start;
+  }
+  if (!gtk_text_iter_forward_search(&cursor, "\n\n", GTK_TEXT_SEARCH_TEXT_ONLY, &lit_end, &edge, nullptr)) {
+    lit_end = end;
+  }
+  const int from_start = gtk_text_iter_get_offset(&lit_start);
+  const int from_end = gtk_text_iter_get_offset(&end) - gtk_text_iter_get_offset(&lit_end);
+  if (from_start == writer->lit_start && from_end == writer->lit_from_end) return;
+  writer->lit_start = from_start;
+  writer->lit_from_end = from_end;
+  gtk_text_buffer_apply_tag(writer->buffer, writer->dimmed, &start, &end);
+  gtk_text_buffer_remove_tag(writer->buffer, writer->dimmed, &lit_start, &lit_end);
+}
+
 void on_buffer_changed(GtkTextBuffer*, gpointer user_data) {
   auto* writer = static_cast<Writer*>(user_data);
   update_word_count(writer);
+  if (writer->loading_document) {
+    writer->lit_start = writer->lit_from_end = -1;  // a new text: dim it afresh
+  } else {
+    set_chrome_quiet(writer, true);
+  }
   schedule_cursor_guard(writer);
   if (!writer->loading_document) schedule_save(writer);
 }
@@ -271,13 +344,18 @@ gboolean keep_cursor_away_from_edges(gpointer user_data) {
   GdkRectangle visible_rect;
   gtk_text_view_get_iter_location(writer->editor, &cursor, &cursor_rect);
   gtk_text_view_get_visible_rect(writer->editor, &visible_rect);
+  refresh_focus_dimming(writer);
 
-  // Keep a calm lower margin. Unlike a typewriter mode, this moves only when
-  // the line reaches the lower edge zone, then returns it to a natural height.
+  // Typewriter scrolling holds the line in the middle of the page. Without it,
+  // keep a calm lower margin: move only when the line reaches the lower edge
+  // zone, then return it to a natural height. A mouse selection is never chased.
+  const bool typewriter = writer->settings.typewriter && !gtk_text_buffer_get_has_selection(writer->buffer);
   const int lower_edge = visible_rect.y + visible_rect.height * 72 / 100;
-  if (cursor_rect.y + cursor_rect.height > lower_edge) {
+  if (typewriter || cursor_rect.y + cursor_rect.height > lower_edge) {
     GtkAdjustment* adjustment = gtk_scrolled_window_get_vadjustment(writer->scroller);
-    const double target = cursor_rect.y + cursor_rect.height / 2.0 - visible_rect.height * 0.42;
+    // Buffer coordinates start below the top margin; the adjustment's do not.
+    const double target = gtk_adjustment_get_value(adjustment) + cursor_rect.y - visible_rect.y
+                        + cursor_rect.height / 2.0 - visible_rect.height * (typewriter ? 0.5 : 0.42);
     const double minimum = gtk_adjustment_get_lower(adjustment);
     const double maximum = std::max(minimum, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment));
     gtk_adjustment_set_value(adjustment, std::clamp(target, minimum, maximum));
@@ -304,8 +382,22 @@ gboolean center_writing_column_after_layout(gpointer user_data) {
   return G_SOURCE_REMOVE;
 }
 
+// Typewriter scrolling needs half a page of paper above and below the text,
+// so even the first and last lines can sit in the middle.
+void apply_page_margins(Writer* writer) {
+  const int half = writer->settings.typewriter ? writer->page_height / 2 : 0;
+  gtk_text_view_set_top_margin(writer->editor, std::max(kTopPaperMargin, half));
+  gtk_text_view_set_bottom_margin(writer->editor, std::max(kBottomPaperMargin, half));
+  schedule_cursor_guard(writer);
+}
+
 gboolean maintain_writing_column(GtkWidget*, GdkFrameClock*, gpointer user_data) {
   auto* writer = static_cast<Writer*>(user_data);
+  const int height = gtk_widget_get_height(GTK_WIDGET(writer->scroller));
+  if (height > 0 && height != writer->page_height) {
+    writer->page_height = height;
+    apply_page_margins(writer);
+  }
   const int width = gtk_widget_get_width(GTK_WIDGET(writer->editor));
   if (width > 0 && width != writer->editor_width) {
     writer->editor_width = width;
@@ -342,9 +434,9 @@ struct Palette {
 constexpr Palette kLight = {"#f7f3ea", "#312c25", "#91897c", "#857a6b", "#b4442f", "#ddd6ca", "#f0ebe1",
                             "#d7cfc2", "#9b8971", "#5a4a36", "rgba(155, 137, 113, 0.28)", "rgba(49, 44, 37, 0.22)"};
 constexpr Palette kDark = {"#1c1a17", "#c9bfaf", "#958a7a", "#958a7a", "#d9785e", "#2f2b26", "#25221e",
-                           "#3d3830", "#a08a6c", "#d8b98a", "rgba(160, 138, 108, 0.34)", "rgba(201, 191, 175, 0.20)"};
+                           "#3d3830", "#a08a6c", "#d6a463", "rgba(160, 138, 108, 0.34)", "rgba(201, 191, 175, 0.20)"};
 constexpr Palette kNight = {"#14110d", "#b39770", "#927a5a", "#927a5a", "#c4704f", "#251f19", "#1c1813",
-                            "#332b22", "#8a6f4d", "#c9a26e", "rgba(150, 115, 70, 0.34)", "rgba(179, 151, 112, 0.16)"};
+                            "#332b22", "#8a6f4d", "#c98a45", "rgba(150, 115, 70, 0.34)", "rgba(179, 151, 112, 0.16)"};
 
 void apply_theme(Writer* writer) {
   const Palette& p = writer->settings.paper == Paper::Night ? kNight
@@ -374,6 +466,10 @@ void apply_theme(Writer* writer) {
       p.paper, p.ink, p.field_border, p.ink, p.selection, p.status);
   gtk_css_provider_load_from_string(writer->theme_css, css);
   g_free(css);
+  GdkRGBA dimmed;
+  gdk_rgba_parse(&dimmed, p.ink);
+  dimmed.alpha = kDimmedInk;
+  g_object_set(writer->dimmed, "foreground-rgba", &dimmed, nullptr);
   // Lets GTK's own pieces, like the file dialog, follow the paper too.
   g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
                writer->settings.paper != Paper::Light, nullptr);
@@ -437,6 +533,7 @@ void show_notification(Writer* writer, const char* message, guint duration_ms) {
   if (writer->notification_timeout != 0) {
     g_source_remove(writer->notification_timeout);
   }
+  set_chrome_quiet(writer, false);
   gtk_label_set_text(writer->notification, message);
   gtk_widget_set_visible(GTK_WIDGET(writer->notification), true);
   writer->notification_timeout = g_timeout_add(duration_ms, hide_notification, writer);
@@ -740,7 +837,22 @@ gboolean on_shortcut(GtkEventControllerKey*, guint keyval, guint, GdkModifierTyp
   }
   if ((modifiers & GDK_CONTROL_MASK) == 0) return false;
 
+  if ((keyval == GDK_KEY_f || keyval == GDK_KEY_F) && (modifiers & GDK_SHIFT_MASK) != 0) {
+    writer->settings.focus_dimming = !writer->settings.focus_dimming;
+    refresh_focus_dimming(writer);
+    save_settings(writer);
+    show_notification(writer, writer->settings.focus_dimming ? "Focus dimming on" : "Focus dimming off");
+    return true;
+  }
+  if ((keyval == GDK_KEY_t || keyval == GDK_KEY_T) && (modifiers & GDK_SHIFT_MASK) != 0) {
+    writer->settings.typewriter = !writer->settings.typewriter;
+    apply_page_margins(writer);
+    save_settings(writer);
+    show_notification(writer, writer->settings.typewriter ? "Typewriter scrolling on" : "Typewriter scrolling off");
+    return true;
+  }
   if (keyval == GDK_KEY_f) {
+    set_chrome_quiet(writer, false);
     if (writer->focus_mode) gtk_widget_set_visible(writer->header, true);
     gtk_widget_set_visible(writer->search_container, true);
     gtk_widget_set_visible(GTK_WIDGET(writer->status), false);
@@ -921,7 +1033,7 @@ void on_activate(GtkApplication* app, gpointer) {
   gtk_text_view_set_justification(GTK_TEXT_VIEW(editor), GTK_JUSTIFY_LEFT);
   gtk_text_view_set_left_margin(GTK_TEXT_VIEW(editor), 96);
   gtk_text_view_set_right_margin(GTK_TEXT_VIEW(editor), 96);
-  gtk_text_view_set_top_margin(GTK_TEXT_VIEW(editor), 72);
+  gtk_text_view_set_top_margin(GTK_TEXT_VIEW(editor), kTopPaperMargin);
   gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(editor), kBottomPaperMargin);
   gtk_text_view_set_pixels_above_lines(GTK_TEXT_VIEW(editor), 0);
   gtk_text_view_set_pixels_below_lines(GTK_TEXT_VIEW(editor), 0);
@@ -929,6 +1041,7 @@ void on_activate(GtkApplication* app, gpointer) {
 
   writer->buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(editor));
   writer->editor = GTK_TEXT_VIEW(editor);
+  writer->dimmed = gtk_text_buffer_create_tag(writer->buffer, nullptr, nullptr);
   if (g_file_test(writer->document_path.c_str(), G_FILE_TEST_EXISTS)) {
     load_document(writer, writer->document_path.c_str());
   }
@@ -992,6 +1105,8 @@ void on_activate(GtkApplication* app, gpointer) {
     popover.essays row { padding: 7px 10px; border-radius: 5px; font-family: Literata, C059, serif; font-size: 15px; }
     popover.essays .essay-date { font-family: sans-serif; font-size: 12px; }
     textview:focus { outline: none; }
+    .header, separator { transition: opacity 400ms ease; }
+    .quiet { opacity: 0; }
   )");
   gtk_style_context_add_provider_for_display(
       gtk_widget_get_display(window), GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -1011,6 +1126,10 @@ void on_activate(GtkApplication* app, gpointer) {
   gtk_event_controller_set_propagation_phase(shortcuts, GTK_PHASE_CAPTURE);
   g_signal_connect(shortcuts, "key-pressed", G_CALLBACK(on_shortcut), writer);
   gtk_widget_add_controller(editor, shortcuts);
+
+  GtkEventController* pointer = gtk_event_controller_motion_new();
+  g_signal_connect(pointer, "motion", G_CALLBACK(on_pointer_moved), writer);
+  gtk_widget_add_controller(window, pointer);
 
   GtkEventController* search_shortcuts = gtk_event_controller_key_new();
   g_signal_connect(search_shortcuts, "key-pressed", G_CALLBACK(on_search_shortcut), writer);

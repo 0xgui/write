@@ -19,10 +19,15 @@ keeps every control behind a shortcut.
 - A clear “Not saved” warning if saving fails, and a notice when another
   program changes the file.
 - Find, focus mode, and text-size controls.
+- Typewriter scrolling keeps the line you are writing in the middle of the
+  page, and focus dimming can quiet every paragraph but the current one.
+- While you type, the header and pointer fade away; move the mouse to bring
+  them back.
 - Three papers: Light, a soft warm Dark, and a dim amber Night for late
   writing. Dark and Night keep contrast gentle (about 9.6:1 and 6.8:1) to cut
-  glare, and the caret, selection, find field, and scrollbar follow the paper.
-- Your paper, text size, and word-count choice are remembered. On first launch
+  glare, and the soft amber caret, selection, find field, and scrollbar follow the paper.
+- Your paper, text size, word-count, focus-dimming, and typewriter choices are
+  remembered. On first launch
   Write starts on Dark if your desktop prefers dark.
 - Your cursor position is remembered for each document.
 
@@ -85,6 +90,8 @@ Use `PREFIX=... make install` for a different install prefix.
 - `Ctrl` + `R` — reload the file from disk after another program changed it
   (your current text is backed up first)
 - `Ctrl` + `Shift` + `W` — show or hide the word count
+- `Ctrl` + `Shift` + `F` — focus dimming: dim all but the current paragraph
+- `Ctrl` + `Shift` + `T` — typewriter scrolling on or off (on by default)
 - `Ctrl` + `Shift` + `I` — show the active writing typeface
 - `F11` — focus mode (fullscreen, no header)
 
@@ -94,7 +101,8 @@ Your writing is ordinary text and remains portable independently of the app.
 Until you use Save As, the default document is stored at
 `~/.local/share/write/document.txt`; its cursor-position metadata lives only in
 the matching app-data folder. Backups live in `~/.local/share/write/backups/`, one folder per document.
-Preferences (paper, text size, word count, the essays folder, and the last
+Preferences (paper, text size, word count, focus dimming, typewriter scrolling,
+the essays folder, and the last
 document you had open) live in `~/.config/write/settings.ini`; delete it to
 return to the defaults.
 
