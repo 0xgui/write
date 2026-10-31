@@ -1,0 +1,39 @@
+# agent-pr-gate config. See https://github.com/0xgui/agent-pr-gate#configuration
+default_tier: medium
+
+# Highest matching tier across all changed files wins.
+tiers:
+  low:
+    - "*.md"
+    - "assets/**"
+  medium:
+    - "src/**"
+    - "tests/**"
+    - "Makefile"
+  high:
+    - ".github/workflows/**"
+    - ".review-gate.yml"
+
+evidence:
+  sections:
+    - Testing
+    - Risk
+    - name: How to revert
+      aliases: [Rollback, Revert plan]
+  require_green_ci: true
+
+routing:
+  approvals:
+    low: 0
+    medium: 0
+    high: 0
+  # Single-maintainer repository: no approving reviews or CODEOWNERS. Evidence sections and
+  # a green build still apply to every PR.
+  high_requires_codeowners: false
+
+rounds:
+  cap: 2
+  review_states: [CHANGES_REQUESTED]
+
+maintainers:
+  - 0xgui

@@ -1,0 +1,46 @@
+# Gates PRs with 0xgui/agent-pr-gate. Config: .review-gate.yml
+name: agent-pr-gate
+on:
+  # Runs the workflow from the DEFAULT branch with a write token, also for fork PRs. GitHub
+  # always uses the default branch's copy, so the gate starts once this file is merged there.
+  # Never check out or run PR code in this workflow.
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  # Re-evaluate when the build workflow finishes.
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+
+permissions:
+  contents: read        # read .review-gate.yml and CODEOWNERS from the base branch
+  pull-requests: write  # labels, review requests
+  issues: write         # the gate comment, creating labels
+  checks: read          # CI verdict
+  actions: read         # tell the gate's own job checks from CI jobs with the same name
+  statuses: write       # the agent-pr-gate commit status
+
+# One gate run per PR at a time. workflow_run payloads only carry the PR number for same-repo
+# PRs; fork PRs fall back to the head SHA, so two runs for one fork PR can overlap. The action
+# re-fetches the PR before writing and skips all writes if the head moved, so an overlapping
+# older run cannot overwrite a newer verdict.
+concurrency:
+  group: agent-pr-gate-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  agent-pr-gate-job:
+    runs-on: ubuntu-latest
+    steps:
+      - id: gate
+        # Pin a full 40-character commit SHA and keep the version comment. Never use a branch
+        # name like @main: whoever can push to it controls your gate.
+        uses: 0xgui/agent-pr-gate@2da570e75f377b413e19bdfc338dab7c9e881538 # v1.0.3
+        with:
+          # Wait about as long as CI takes, so the first status isn't "CI pending".
+          # workflow_run re-runs the gate when CI finishes either way.
+          ci-wait-seconds: '300'
+      - if: always() && steps.gate.outputs.metrics-path != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-pr-gate-metrics
+          path: ${{ steps.gate.outputs.metrics-path }}
